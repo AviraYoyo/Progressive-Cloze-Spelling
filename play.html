@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-10-21-r44';
+  var BUILD = '2026-10-21-r49';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r44">
-<link rel="stylesheet" href="assets/css/student.css?v=2026-10-21-r44">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r49">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-10-21-r49">
 </head>
 <body class="play-page">
 
@@ -124,24 +124,24 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r44';
-import { diagnose } from './assets/js/blanking.js?v=2026-10-21-r44';
-import { localWordBank, loadWordList, analyseItem, buildItemInline } from './assets/js/wordbank.js?v=2026-10-21-r44';
-import { emojiForWord } from './assets/js/emoji.js?v=2026-10-21-r44';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r49';
+import { diagnose } from './assets/js/blanking.js?v=2026-10-21-r49';
+import { localWordBank, loadWordList, analyseItem, buildItemInline } from './assets/js/wordbank.js?v=2026-10-21-r49';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-10-21-r49';
 import {
   initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
   progress, summarise, serialise, deserialise,
-} from './assets/js/scheduler.js?v=2026-10-21-r44';
-import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech } from './assets/js/speech.js?v=2026-10-21-r44';
-import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-10-21-r44';
-import { recordExposure } from './assets/js/exposure.js?v=2026-10-21-r44';
-import { enqueue } from './assets/js/outbox.js?v=2026-10-21-r44';
-import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-10-21-r44';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-21-r44';
+} from './assets/js/scheduler.js?v=2026-10-21-r49';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech } from './assets/js/speech.js?v=2026-10-21-r49';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-10-21-r49';
+import { recordExposure } from './assets/js/exposure.js?v=2026-10-21-r49';
+import { enqueue } from './assets/js/outbox.js?v=2026-10-21-r49';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-10-21-r49';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-21-r49';
 import {
   scoreRound, loadMyScore, addScore, fetchClassRanking, myRank, buildRankSession,
   subscribeClassRanking,
-} from './assets/js/leaderboard.js?v=2026-10-21-r44';
+} from './assets/js/leaderboard.js?v=2026-10-21-r49';
 
 const CFG = PCS_CONFIG.experiment;
 initLang();

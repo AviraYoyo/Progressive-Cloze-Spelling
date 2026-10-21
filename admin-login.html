@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-10-21-r44';
+  var BUILD = '2026-10-21-r49';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,7 +32,7 @@
 <title>Teacher Console · Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r44">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r49">
 <style>
 body {
   min-height: 100dvh;
@@ -111,18 +111,6 @@ body {
 .btn-google { margin-top: 10px; background: var(--card); border: 2px solid var(--line); color: var(--ink); }
 .btn-google:hover { background: var(--card-alt); }
 .btn-ghost { margin-top: 8px; background: transparent; color: var(--orange-dark); font-size: 14px; font-weight: 700; height: 44px; }
-/* ★ 2026-10-16：popup 失敗時，把「整頁跳轉登入」按鈕提示出來 */
-#google-redirect-btn { display: block; width: 100%; }
-#google-redirect-btn.suggest {
-  background: var(--orange-soft);
-  border: 2px solid var(--orange);
-  color: var(--orange-dark);
-  animation: pcs-pulse 1.6s ease-in-out 3;
-}
-@keyframes pcs-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(249,115,22,.35); }
-  50%      { box-shadow: 0 0 0 7px rgba(249,115,22,0); }
-}
 
 .divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 4px; font-size: 12.5px; color: var(--ink-mute); }
 .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
@@ -176,6 +164,13 @@ body {
 
     <div class="msg" id="msg"></div>
 
+    <!-- ★ 2026-10-21：部署網域預檢。
+         Firebase 只允許「Authorized domains」清單裡的網域做 Google OAuth 授權。
+         網域沒加進去 → 彈窗會跳出 Firebase 的 "The requested action is invalid."
+         或 "This domain is not authorised"，老師完全看不懂。
+         這裡在頁面打開時就先查一次清單，直接把要加的網域寫在畫面上。 -->
+    <div class="msg info" id="domainWarn" hidden></div>
+
     <!-- ── Sign in ── -->
     <form id="formSignin">
       <div class="field">
@@ -200,15 +195,6 @@ body {
       </svg>
       <span data-i18n="auth.btnGoogle">Sign in with Google</span>
     </button>
-
-    <!-- ★ 2026-10-16：整頁跳轉登入（popup 失敗時的備援）。
-         彈窗模式靠 postMessage 把授權結果帶回來，在「authDomain 與頁面網域不同」
-         的部署（GitHub Pages）容易對不上 eventId → Firebase 回 INVALID_ACTION
-         （"The requested action is invalid."）。redirect 模式不依賴 postMessage，
-         整頁跳過去、授權完再整頁跳回來，穩定得多。
-         這個按鈕平時也可以直接用，點了會離開頁面再回來。 -->
-    <button class="btn btn-ghost" type="button" id="google-redirect-btn"
-            data-i18n="auth.btnGoogleRedirect">Sign in with Google (full page)</button>
     </form>
 
     <!-- ── Register ── -->
@@ -301,11 +287,59 @@ window.addEventListener('unhandledrejection', function (e) {
 
 <script type="module">
 import {
-  signInWithEmail, signUpWithEmail, signInWithGoogle,
-  signInWithGoogleRedirect, completeRedirectSignIn, currentHost,
+  signInWithEmail, signUpWithEmail, signInWithGoogle, currentHost,
   sendPasswordReset, checkPassword, enablePersistentSignIn,
-} from './assets/js/auth.js?v=2026-10-21-r44';
-import { initLang, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-21-r44';
+} from './assets/js/auth.js?v=2026-10-21-r49';
+import { initLang, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-21-r49';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r49';
+
+/**
+ * ★★ 部署網域預檢（2026-10-21）
+ *
+ *  Firebase 只允許「Authorized domains」清單裡的網域做 Google OAuth 授權，
+ *  網域沒加進去 → 彈窗跳出 Firebase 的
+ *  「The requested action is invalid.」或「This domain is not authorised.」
+ *  —— 老師完全看不懂，也不知道要改哪裡。
+ *
+ *  這裡在頁面打開時就查一次清單，把「要加哪個網域」直接寫在畫面上。
+ *  端點是公開的（不需要管理權限），回應只含 authorizedDomains。
+ */
+async function checkAuthorizedDomain() {
+  const box = document.getElementById('domainWarn');
+  if (!box) return;
+  const host = currentHost();
+  if (!host) return;
+
+  try {
+    const key = PCS_CONFIG.firebase.apiKey;
+    const r = await fetch(
+      `https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=${key}`,
+      { cache: 'no-store' }
+    );
+    if (!r.ok) return;
+    const cfg = await r.json();
+    const allowed = cfg.authorizedDomains || [];
+    if (allowed.includes(host)) return;          // 正常 → 不顯示任何提示
+
+    // ★ 網域沒在清單裡 → 直接把要加的值寫出來
+    const isLoopback = host === '127.0.0.1' || host === '0.0.0.0';
+    box.innerHTML = `
+      <b>⚠️ Google 登入會失敗：目前網域還沒加入 Firebase 的授權清單</b>
+      <span class="fix">請把下面這個網域加進去，然後等幾分鐘再試：</span>
+      <span class="fix"><code>${host}</code></span>
+      <span class="fix">Firebase Console → <b>Authentication</b> → <b>Settings</b> →
+        <b>Authorized domains</b> → <b>Add domain</b> → 貼上 <code>${host}</code> → Add</span>
+      ${isLoopback
+        ? `<span class="fix">小提醒：<code>localhost</code> 已經在清單裡了。
+             平常本機開發直接用 <code>http://localhost:8099</code> 就能登入，
+             不必用 <code>127.0.0.1</code>；要用也可以把 <code>${host}</code> 一起加進去。</span>`
+        : ''}
+    `;
+    box.hidden = false;
+  } catch {
+    // 查不到就算了 —— 不影響登入（可能是離線或 CORS）
+  }
+}
 
 /**
  * 跳轉前等待 Firebase 把登入狀態持久化到 localStorage。
@@ -328,6 +362,10 @@ async function waitAuthPersisted() {
 initLang();
 applyI18n(document);
 mountLangToggle(document.getElementById('langSlot'), { onChange: () => applyI18n(document) });
+
+// ★ 網域預檢：打開頁面就告訴老師「你的網域還沒加進 Firebase 授權清單」
+//   （沒加的話 Google 登入一定失敗，但 Firebase 只會丟一句英文原文）
+checkAuthorizedDomain();
 
 // ★ 保持登入：local persistence。關掉分頁、重新開瀏覽器都不用再 Sign in。
 //   已經在登入狀態的話直接進後台，不要再要求按一次。
@@ -374,21 +412,38 @@ const FIX_HINTS = {
   'auth/unauthorized-domain': `<span class="fix">Fix: Firebase Console → <b>Authentication</b> → <b>Settings</b> →
     <b>Authorized domains</b> → click <b>Add domain</b> → add <code>localhost</code>
     (and your real domain later, e.g. <code>yourname.github.io</code>).</span>`,
-  'auth/popup-blocked': `<span class="fix">Fix: allow pop-ups for this site, then try again.
-    Or click <b>“Sign in with Google (full page)”</b> below — that method does not need pop-ups.</span>`,
+  'auth/popup-blocked': `<span class="fix">Fix: allow pop-ups for this site
+    (click the blocked-pop-up icon in the address bar), then try again.
+    Or use the Email / Password form above.</span>`,
   // ★ 2026-10-16：GitHub Pages 部署最常見的那一個
-  'auth/invalid-action': `<span class="fix">Fix: the pop-up could not hand the result back to this page.
-    First try <b>“Sign in with Google (full page)”</b> below.
-    If that still fails, add <code>${currentHost()}</code> to
+  'auth/invalid-action': `<span class="fix">Fix: Firebase rejected the sign-in hand-off.
+    Add <code>${currentHost()}</code> to
     Firebase Console → <b>Authentication</b> → <b>Settings</b> → <b>Authorized domains</b>,
-    then wait a few minutes and reload.</span>`,
+    then wait a few minutes and reload. If it still fails, use Email / Password above.</span>`,
+  // ★ 2026-10-21：Firebase 的 bad-request = reCAPTCHA 攔截（本地 + 線上同時壞就是這個）
+  'auth/bad-request': `<span class="fix">Fix: this is Firebase's <b>reCAPTCHA</b> check rejecting the sign-in.
+    Ask the researcher to open
+    Firebase Console → <b>Authentication</b> → <b>Settings</b> → <b>App protection</b>
+    and either turn reCAPTCHA off, or add <code>${currentHost()}</code> to the
+    <b>site names</b> list.<br>
+    (Email + password sign-in still works — only Google is affected.)</span>`,
+  'auth/captcha-check-failed': `<span class="fix">Fix: Firebase's <b>reCAPTCHA</b> check rejected this site.
+    Ask the researcher to add <code>${currentHost()}</code> to
+    Firebase Console → <b>Authentication</b> → <b>Settings</b> → <b>App protection</b> → <b>site names</b>,
+    or turn reCAPTCHA off.</span>`,
   'permission-denied': `<span class="fix">This is a Firestore Rules problem, not a sign-in problem.
     Firebase Console → <b>Firestore Database</b> → <b>Rules</b> → paste <code>firestore.rules</code> → Publish.</span>`,
 };
 
 function showAuthError(code, text) {
   const fix = FIX_HINTS[code] || '';
-  showMsg(`${text}${fix}`, 'error');
+  // ★ 2026-10-21：把 Firebase 的**真實錯誤碼**一起顯示出來。
+  //   之前只有一句英文原文（"The requested action is invalid."），
+  //   誰都查不出到底是哪個環節壞了；有錯誤碼就能直接對照 Firebase 文件。
+  const codeTag = code
+    ? `<span class="fix" style="font-family:ui-monospace,Menlo,monospace">Error code: <b>${String(code).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))}</b></span>`
+    : '';
+  showMsg(`${text}${codeTag}${fix}`, 'error');
 }
 
 // ── Button busy state ──
@@ -455,42 +510,8 @@ document.getElementById('google-btn').addEventListener('click', async () => {
     hideMsg();
   } else {
     showAuthError(r.code, r.error || 'Google sign-in failed');
-    // ★ popup 失敗 → 把「整頁跳轉」按鈕亮出來（它一直都在，只是平時較低調）
-    const alt = document.getElementById('google-redirect-btn');
-    if (alt) {
-      alt.classList.add('suggest');
-      alt.scrollIntoView({ block: 'nearest' });
-    }
   }
 });
-
-// ── Google（整頁跳轉模式）──
-// ★ 為什麼需要：popup 模式靠 postMessage 把授權結果送回 opener。
-//   當 authDomain（pc-spelling.firebaseapp.com）與頁面網域
-//   （avirayoyo.github.io）不同時，事件對不上就會出現
-//   「The requested action is invalid.」（INVALID_ACTION）。
-//   redirect 模式整頁跳走再跳回，不依賴 postMessage，穩定得多。
-document.getElementById('google-redirect-btn').addEventListener('click', async () => {
-  const btn = document.getElementById('google-redirect-btn');
-  busy(btn, true, 'Opening Google…');
-  const r = await signInWithGoogleRedirect();
-  busy(btn, false);
-  if (!r.ok) showAuthError(r.code, r.error || 'Google sign-in failed');
-  // r.redirected === true 時瀏覽器已經跳走，不會走到這裡
-});
-
-// ── redirect 模式回來時接住結果 ──
-(async () => {
-  const r = await completeRedirectSignIn();
-  if (r.skipped) return;                       // 不是 redirect 回來的 → 不處理
-  if (r.ok) {
-    showMsg('Signed in. Opening the console…', 'success');
-    await waitAuthPersisted();
-    setTimeout(() => { location.href = 'admin.html'; }, 300);
-  } else {
-    showAuthError(r.code, r.error || 'Sign-in did not complete');
-  }
-})();
 
 // ── Register ──
 document.getElementById('formSignup').addEventListener('submit', async (e) => {

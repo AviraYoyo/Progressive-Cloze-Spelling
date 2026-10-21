@@ -60,7 +60,7 @@ export async function enablePersistentSignIn() {
 }
 
 /**
- * Google 登入。
+ * Google 登入（彈窗模式）。
  * 需要在 Firebase Console → Authentication → Sign-in method 啟用 Google，
  * 並在 Authorized domains 加上你的部署網域。
  */
@@ -82,6 +82,67 @@ export async function signInWithGoogle() {
       return { ok: false, cancelled: true, message: '已取消登入' };
     }
     console.error('[PCS] Google sign-in failed', e);
+    return { ok: false, error: friendlyError(e), code: e?.code ?? null };
+  }
+}
+
+/**
+ * ★ Google 登入（整頁跳轉模式）—— popup 失敗時的備援。
+ *
+ * 為什麼需要備援：
+ *   popup 模式要靠「彈窗頁 → postMessage → opener」把結果帶回來。
+ *   在 GitHub Pages 這類「authDomain（pc-spelling.firebaseapp.com）與
+ *   頁面網域（avirayoyo.github.io）不同」的情況下，Firebase 會退化到
+ *   跨域 iframe / popup 流程；一旦 eventId 對不上（多開分頁、重複點擊、
+ *   瀏覽器擴充攔截、隱私模式），授權中介頁就會回
+ *   「The requested action is invalid.」（Identity Toolkit 的 INVALID_ACTION）。
+ *
+ *   redirect 模式是「整頁跳到 Google → 授權 → 整頁跳回來」，
+ *   靠 URL 帶 token，不依賴 postMessage，因此在非標準部署環境下穩定得多。
+ *   代價是使用者要離開頁面一次。
+ */
+export async function signInWithGoogleRedirect() {
+  const a = await auth();
+  const { GoogleAuthProvider, signInWithRedirect } = await import(
+    new URL('../vendor/firebase/firebase-auth.js', import.meta.url).href
+  );
+
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+
+  try {
+    // ★ 記住「這次是 redirect 登入」，回來時才知道要把結果接住。
+    try { sessionStorage.setItem('pcs.authRedirect', '1'); } catch { /* private mode */ }
+    await signInWithRedirect(a, provider);
+    return { ok: true, redirected: true };
+  } catch (e) {
+    console.error('[PCS] Google redirect sign-in failed', e);
+    return { ok: false, error: friendlyError(e), code: e?.code ?? null };
+  }
+}
+
+/**
+ * ★ redirect 模式回來時，把結果接住（必須在頁面載入時呼叫一次）。
+ * @returns {Promise<{ok:boolean, email?:string, error?:string}>}
+ */
+export async function completeRedirectSignIn() {
+  let redirected = false;
+  try { redirected = sessionStorage.getItem('pcs.authRedirect') === '1'; } catch { /* ignore */ }
+  if (!redirected) return { ok: false, skipped: true };
+
+  try { sessionStorage.removeItem('pcs.authRedirect'); } catch { /* ignore */ }
+
+  const a = await auth();
+  const { getRedirectResult } = await import(
+    new URL('../vendor/firebase/firebase-auth.js', import.meta.url).href
+  );
+
+  try {
+    const cred = await getRedirectResult(a);
+    if (!cred?.user) return { ok: false, error: 'Google sign-in did not complete. Please try again.' };
+    return await afterSignIn(cred.user);
+  } catch (e) {
+    console.error('[PCS] redirect 結果接取失敗', e);
     return { ok: false, error: friendlyError(e), code: e?.code ?? null };
   }
 }
@@ -346,6 +407,10 @@ export function checkPassword(pw) {
 
 // ─────────────────────────────────────────────────────────────
 // 錯誤訊息中文化
+//
+// ★ 2026-10-16 補強：INVALID_ACTION 這類 Firebase 授權錯誤，原本直接把英文原文
+//   丟給老師（"The requested action is invalid."）—— 完全看不懂也不知道該做什麼。
+//   現在改成「說明 + 下一步」。
 // ─────────────────────────────────────────────────────────────
 function friendlyError(e) {
   const map = {
@@ -358,12 +423,38 @@ function friendlyError(e) {
     'auth/weak-password':        'Password too weak (at least 6 characters)',
     'auth/too-many-requests':    'Too many attempts. Try again later.',
     'auth/network-request-failed': 'Network problem. Check your connection.',
-    'auth/popup-blocked':        'Pop-up blocked. Allow pop-ups for this site.',
+    'auth/popup-blocked':        'Pop-up blocked. Allow pop-ups for this site, or use "Sign in (full page)".',
     'auth/popup-closed-by-user': 'Sign-in cancelled',
     'auth/operation-not-allowed':'This sign-in method is not enabled yet. Ask the administrator.',
     'auth/unauthorized-domain':  'This domain is not authorised. Ask the administrator.',
     'auth/requires-recent-login':'Please sign in again before changing your password',
+
+    // ★★ 部署到 GitHub Pages / 本機都同時壞掉時最常見的那一個。
+    //   ★ Firebase 的錯誤碼對照表裡，"bad-request" 的文案就是這一句：
+    //     "bad-request": "The requested action is invalid."
+    //   而 reCAPTCHA（風控）失敗的文案明寫：
+    //     "the reCAPTCHA response token provided is either invalid, expired,
+    //      already used or the domain associated with it does not match
+    //      the list of whitelisted domains."
+    //   → 也就是說：Firebase 專案的 reCAPTCHA 網域白名單沒有你的網域。
+    //   Email + 密碼登入不受影響（不走 OAuth/reCAPTCHA），所以會出現
+    //   「Email 能登、只有 Google 不行」這個症狀。
+    'auth/bad-request':          'Google sign-in was rejected by Firebase. This is usually the reCAPTCHA check: the site address is not on the reCAPTCHA site list. Ask the researcher to check Firebase → Authentication → Settings → App protection (reCAPTCHA Enterprise), or turn reCAPTCHA off.',
+
+    'auth/captcha-check-failed': 'Google sign-in was blocked by the reCAPTCHA check. Ask the researcher to add this site to Firebase → Authentication → Settings → App protection.',
+
+    // ★★ 部署到 GitHub Pages 時最常見的那一個（Identity Toolkit 的 INVALID_ACTION）
+    'auth/invalid-action':       'Google sign-in was rejected by Firebase. This usually means the pop-up could not hand the result back, or the site address is not on Firebase\'s authorised list. Try "Sign in (full page)" below; if that also fails, ask the researcher to add this site to Firebase → Authentication → Settings → Authorised domains.',
+
     'permission-denied':        'Missing or insufficient permissions (Firestore Rules)',
   };
   return map[e?.code] || e?.message || 'Something went wrong. Please try again.';
+}
+
+/**
+ * ★ 目前頁面所在的網域 —— 排查 Firebase 授權問題時要用。
+ * 例如 'avirayoyo.github.io'，這就是要加進 Authorised domains 的值。
+ */
+export function currentHost() {
+  try { return location.hostname; } catch { return ''; }
 }

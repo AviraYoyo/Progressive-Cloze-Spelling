@@ -2,8 +2,9 @@
  * PCS — Firebase Bootstrap
  * Progressive Cloze Spelling · CPI 2026
  *
- * 只做初始化，不含業務邏輯。SDK 版本集中在 config.js，
- * 這裡用 importmap 動態組 URL（見各 HTML 的 importmap）。
+ * 只做初始化，不含業務邏輯。SDK 版本集中在 config.js。
+ * ★ 2026-10-21：SDK 從本地 assets/vendor/firebase/ 載入，且**全站只能有一種 URL 形式**
+ *   （用 sdkUrl() 統一產生）—— 見下方雙斜槓事故的說明。
  */
 
 import { firebaseConfig, FIREBASE_VERSION, PCS_CONFIG } from './config.js';
@@ -27,14 +28,33 @@ let ready = null;
 const TEACHER_APP = '[DEFAULT]';
 const STUDENT_APP = 'pcs-student';
 
-const V = FIREBASE_VERSION;
 // ★ 2026-10-16：SDK 改為本地 vendor（原本打 gstatic CDN，內地學校網絡常屏蔽 → 後台全掛）。
 //   升級 SDK：替換 assets/vendor/firebase/ 裡的檔案 + 更新 config.js 的 FIREBASE_VERSION。
-const base = new URL('../vendor/firebase/', import.meta.url).href;
+//
+// ★★★ 2026-10-21 修復重大 bug：這裡原本是
+//       const base = new URL('../vendor/firebase/', import.meta.url).href;   // 結尾自帶 "/"
+//       return import(`${base}/${sdk}`);                                     // 又多一個 "/"
+//     → 實際 URL 變成 ".../vendor/firebase//firebase-app.js"（**雙斜槓**）。
+//     而其他模組（auth.js / leaderboard.js / analytics.js / admin.html）用的是
+//     new URL('../vendor/firebase/x.js', …) → 單斜槓。
+//     ES module 的 URL 是「字串嚴格比對」→ 同一份 SDK 被求值兩次 →
+//     **兩個互相不認識的模組實例**。症狀：
+//       · Firestore：`Expected first argument to collection() to be a
+//         CollectionReference, a DocumentReference or FirebaseFirestore`
+//         → Results / assignments 全部讀不到，看起來像「資料全沒了」（其實都在）
+//       · Auth：兩個 auth 實例，popup 授權回來的 eventId 對不上 →
+//         Google 登入一律 "The requested action is invalid."
+//     現在全部走 new URL() 正規化，保證只有一種 URL、只有一份模組。
+function sdkUrl(sdk) {
+  return new URL(`../vendor/firebase/${sdk}`, import.meta.url).href;
+}
 
 async function load(sdk) {
-  return import(`${base}/${sdk}`);
+  return import(sdkUrl(sdk));
 }
+
+/** 給其他模組共用：保證全站只會用「同一個 URL」載入 SDK */
+export { sdkUrl };
 
 /**
  * 取得（或建立）指定名稱的 app。

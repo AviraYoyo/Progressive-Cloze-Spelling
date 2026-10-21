@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-10-21-r44';
+  var BUILD = '2026-10-21-r49';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,7 +32,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r44">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r49">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -1251,19 +1251,19 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r44';
-import { initFirebase } from './assets/js/firebase.js?v=2026-10-21-r44';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-10-21-r44';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-10-21-r44';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-10-21-r44';
-import { analyseItem } from './assets/js/phrase.js?v=2026-10-21-r44';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-10-21-r44';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r49';
+import { initFirebase } from './assets/js/firebase.js?v=2026-10-21-r49';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-10-21-r49';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-10-21-r49';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-10-21-r49';
+import { analyseItem } from './assets/js/phrase.js?v=2026-10-21-r49';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-10-21-r49';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-10-21-r44';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-10-21-r44';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-10-21-r44';
+} from './assets/js/assignments.js?v=2026-10-21-r49';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-10-21-r49';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-10-21-r49';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
