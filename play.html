@@ -10,14 +10,21 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-10-16-r43';
+  var BUILD = '2026-10-21-r44';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
     if (seen === BUILD) return;
     localStorage.setItem(KEY, BUILD);
     if (seen && seen !== BUILD) {
-      location.replace(location.pathname + location.search + '?_r=' + Date.now());
+      // ★ 2026-10-16 修正：原本是 pathname + search + '?_r=' + ...
+      //   → 當網址本來就有 query（例如 ?pin=1234 分享連結）會變成
+      //     "?pin=1234?_r=1759..."，兩個問號 → URLSearchParams 取到的 pin
+      //     變成 "1234?_r=1759..." → PIN 格式校驗失敗 → 學生進不了課程。
+      //   現在用 URL API 正確合併，並保留原本的 query。
+      var u = new URL(location.href);
+      u.searchParams.set('_r', String(Date.now()));
+      location.replace(u.pathname + u.search + u.hash);
     }
   } catch (e) { /* private mode：略過 */ }
 })();
@@ -25,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-16-r43">
-<link rel="stylesheet" href="assets/css/student.css?v=2026-10-16-r43">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r44">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-10-21-r44">
 </head>
 <body class="play-page">
 
@@ -117,24 +124,24 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-10-16-r43';
-import { diagnose } from './assets/js/blanking.js?v=2026-10-16-r43';
-import { localWordBank, loadWordList, analyseItem, buildItemInline } from './assets/js/wordbank.js?v=2026-10-16-r43';
-import { emojiForWord } from './assets/js/emoji.js?v=2026-10-16-r43';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r44';
+import { diagnose } from './assets/js/blanking.js?v=2026-10-21-r44';
+import { localWordBank, loadWordList, analyseItem, buildItemInline } from './assets/js/wordbank.js?v=2026-10-21-r44';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-10-21-r44';
 import {
   initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
   progress, summarise, serialise, deserialise,
-} from './assets/js/scheduler.js?v=2026-10-16-r43';
-import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech } from './assets/js/speech.js?v=2026-10-16-r43';
-import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-10-16-r43';
-import { recordExposure } from './assets/js/exposure.js?v=2026-10-16-r43';
-import { enqueue } from './assets/js/outbox.js?v=2026-10-16-r43';
-import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-10-16-r43';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-16-r43';
+} from './assets/js/scheduler.js?v=2026-10-21-r44';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech } from './assets/js/speech.js?v=2026-10-21-r44';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-10-21-r44';
+import { recordExposure } from './assets/js/exposure.js?v=2026-10-21-r44';
+import { enqueue } from './assets/js/outbox.js?v=2026-10-21-r44';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-10-21-r44';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-21-r44';
 import {
   scoreRound, loadMyScore, addScore, fetchClassRanking, myRank, buildRankSession,
   subscribeClassRanking,
-} from './assets/js/leaderboard.js?v=2026-10-16-r43';
+} from './assets/js/leaderboard.js?v=2026-10-21-r44';
 
 const CFG = PCS_CONFIG.experiment;
 initLang();

@@ -10,14 +10,21 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-10-16-r43';
+  var BUILD = '2026-10-21-r44';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
     if (seen === BUILD) return;
     localStorage.setItem(KEY, BUILD);
     if (seen && seen !== BUILD) {
-      location.replace(location.pathname + location.search + '?_r=' + Date.now());
+      // ★ 2026-10-16 修正：原本是 pathname + search + '?_r=' + ...
+      //   → 當網址本來就有 query（例如 ?pin=1234 分享連結）會變成
+      //     "?pin=1234?_r=1759..."，兩個問號 → URLSearchParams 取到的 pin
+      //     變成 "1234?_r=1759..." → PIN 格式校驗失敗 → 學生進不了課程。
+      //   現在用 URL API 正確合併，並保留原本的 query。
+      var u = new URL(location.href);
+      u.searchParams.set('_r', String(Date.now()));
+      location.replace(u.pathname + u.search + u.hash);
     }
   } catch (e) { /* private mode：略過 */ }
 })();
@@ -25,7 +32,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-16-r43">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r44">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -1244,19 +1251,19 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-10-16-r43';
-import { initFirebase } from './assets/js/firebase.js?v=2026-10-16-r43';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-10-16-r43';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-10-16-r43';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-10-16-r43';
-import { analyseItem } from './assets/js/phrase.js?v=2026-10-16-r43';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-10-16-r43';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r44';
+import { initFirebase } from './assets/js/firebase.js?v=2026-10-21-r44';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-10-21-r44';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-10-21-r44';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-10-21-r44';
+import { analyseItem } from './assets/js/phrase.js?v=2026-10-21-r44';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-10-21-r44';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-10-16-r43';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-10-16-r43';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-10-16-r43';
+} from './assets/js/assignments.js?v=2026-10-21-r44';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-10-21-r44';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-10-21-r44';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
