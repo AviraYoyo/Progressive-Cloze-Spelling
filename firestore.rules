@@ -1,0 +1,248 @@
+rules_version = '2';
+
+/**
+ * PCS — Firestore Security Rules
+ * Progressive Cloze Spelling · CPI 2026 · Yoyo Gu (11436852)
+ *
+ * ★ 部署方式（二選一）：
+ *   A. firebase deploy --only firestore:rules
+ *   B. Firebase Console → Firestore Database → Rules → 貼上全文 → Publish
+ *
+ * ★ 設計原則
+ *   1. 學生端用匿名登入，只能寫自己的作答，且不可讀任何資料。
+ *   2. 老師端靠 teachers/{uid} 白名單讀取分析資料。
+ *   3. 學生規則裡禁止 get() / exists() —— 這會額外計費為 read。
+ *   4. exposures 只允許 create，永不 update/delete（保護研究資料完整性）。
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ═══════════════════════════════════════════
+    // helpers
+    // ═══════════════════════════════════════════
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAnonymous() {
+      return isSignedIn()
+        && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    // ★ 白名單的 key 是 Auth uid，不是 email。
+    //   用 email 當 document id 會踩坑：email 裡的 "." 在路徑插值時被當成
+    //   分隔符，$(...) 插值不接受含 "/" 的值，rules 會直接報 invalid_argument。
+    function isTeacher() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    }
+
+    // 備用：email 白名單陣列（方便老師在後台自助新增）
+    //   優點：不需查 uid。缺點：每次評估算 1 read。
+    //   ★ 只用在老師端，不要用在學生端。
+    function isTeacherByEmailList() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/config/teachers)
+        && request.auth.token.email in
+             get(/databases/$(database)/documents/config/teachers).data.emails;
+    }
+
+    function teacherOrList() {
+      return isTeacher() || isTeacherByEmailList();
+    }
+
+    function isStudentWrite() {
+      return isAnonymous()
+        && request.resource.data.authUid == request.auth.uid;
+    }
+
+    // ═══════════════════════════════════════════
+    // exposure 欄位驗證
+    // ★ 防止前端寫入格式錯誤的資料污染研究數據
+    // ★★ 這個函式必須定義在 service 區塊「裡面」。
+    //   Firestore rules 只允許在 service cloud.firestore 內宣告函式，
+    //   放在區塊外（檔案最後）會讓整份rules 在 Publish 時被拒絕。
+    // ═══════════════════════════════════════════
+    function validExposure(d) {
+      return d.keys().hasAll([
+        'exposureId', 'authUid', 'sessionId', 'studentName', 'classNo',
+        'phase', 'dateKey', 'wordId', 'word', 'sentence',
+        'level', 'exposureIndex', 'durationMs', 'probes', 'clientTs'
+      ])
+      && d.schemaVersion == 1
+      && d.level is int && d.level >= 1 && d.level <= 12
+      && d.exposureIndex is int && d.exposureIndex >= 0
+      && d.durationMs is number && d.durationMs >= 0 && d.durationMs < 600000
+      && d.probes is list && d.probes.size() >= 1 && d.probes.size() <= 12
+      && d.clientTs is number
+      && d.mode in ['progressive', 'dictation', 'advanced', 'flashcard']
+      && d.phase in ['pretest', 'intervention', 'posttest', 'delayed', 'practice'];
+    }
+
+
+    // ═══════════════════════════════════════════
+    // 詞庫：學生公開讀（要離線可用），只有老師能寫
+    // ═══════════════════════════════════════════
+    match /words/{wordId} {
+      allow read: if true;
+      allow write: if teacherOrList();
+    }
+
+    match /wordLists/{listId} {
+      allow read: if true;
+      allow write: if teacherOrList();
+    }
+
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if teacherOrList();
+    }
+
+    // 座位表：登入頁要顯示班別，所以公開讀
+    match /rosters/{classId}/students/{seat} {
+      allow read: if true;
+      allow write: if teacherOrList();
+    }
+
+    match /allocations/{classId} {
+      allow read: if true;
+      allow write: if teacherOrList();
+    }
+
+    // ═══════════════════════════════════════════
+    // ★ 核心：作答資料
+    //   students → 只能 create 自己的，不可讀
+    //   teachers → 可讀，寫入時必須 isTeacher()（即白名單已存在才能改）
+    // ═══════════════════════════════════════════
+    match /exposures/{exposureId} {
+      allow create: if isStudentWrite()
+        && validExposure(request.resource.data);
+
+      allow read: if teacherOrList();
+
+      // ★ append-only 的核心：update 只允許「完全相同的重寫」。
+      //   outbox 是用 setDoc 做冪等重試的，網路中斷時可能伺服器已寫入、
+      //   客戶端以為失敗而重試。若連 update 都擋，該筆會永遠卡在 outbox。
+      allow update: if isAnonymous()
+        && resource.data.authUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['serverTs']);
+
+      // ★★ 刪除：只允許白名單老師。
+      //   ⚠️ 這代表老師**可以**刪掉研究數據 —— 這是刻意的取捨：
+      //   正式收資料前需要清掉測試資料，而 Firestore Rules 無法分辨
+      //   「測試資料」與「研究資料」（兩者結構完全相同）。
+      //   因此保護放在**流程**上：後台的清空按鈕要輸入確認文字，
+      //   並在畫面上說明「這會刪掉所有作答資料」。
+      //   若你的研究需要絕對不可刪，把這行改成 `if false` 並用 Console 手動清。
+      allow delete: if teacherOrList();
+    }
+
+    match /sessions/{sessionId} {
+      allow create: if isStudentWrite()
+        && request.resource.data.keys().hasAll([
+             'sessionId', 'studentName', 'classNo', 'accuracy'
+           ]);
+
+      // 學生只能補寫自己的（且只准改 syncState）
+      allow update: if isStudentWrite()
+        && resource.data.authUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['syncState', 'serverTs']);
+
+      allow read: if teacherOrList();
+      allow delete: if teacherOrList();
+    }
+
+    // ═══════════════════════════════════════════════
+    // ★ 公開排名板（2026-10-16，Bug 2）
+    //
+    //   為什麼需要：sessions 的 read 只給老師（保護研究資料），
+    //   但「班級排名」的本質就是把同班成績顯示給學生看 —— 兩者衝突。
+    //   原本只有 sessions，學生匿名登入讀不到 → 即時排名永遠是空的。
+    //
+    //   設計：rankBoard 只放「排行榜 UI 本來就看得見的欄位」
+    //   （姓名、班號、分數、正確率、完成詞數、結束時間），
+    //   沒有任何逐字母明細、耗時、例句 —— 那些留在 sessions 裡給老師。
+    //   read 放給所有已登入者（含匿名學生），因為排行榜要顯示的就是這些。
+    //
+    //   ⚠️ 隱私取捨：學生理論上能用 SDK 拉同班全部條目。
+    //   但 UI 上本來就公開顯示同班姓名＋分數＋正確率（Wordwall 模式），
+    //   所以這裡沒有洩漏 UI 之外的資訊。
+    //   若你的研究認為不該讓學生互相看到分數，把 read 改成 teacherOrList()
+    //   並同步關掉 play.html 的排名抽屜。
+    // ═══════════════════════════════════════════════
+    match /rankBoard/{sessionId} {
+      allow read: if isSignedIn();
+
+      allow create: if isStudentWrite()
+        && request.resource.data.keys().hasAll([
+             'sessionId', 'assignmentId', 'studentName', 'classNo',
+             'points', 'accuracy', 'authUid'
+           ]);
+
+      // 學生只能補寫自己的（且只准改 syncState）
+      allow update: if isStudentWrite()
+        && resource.data.authUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['syncState', 'serverTs']);
+
+      allow delete: if teacherOrList();
+    }
+
+    // ★ 老師白名單
+    //   這段的設計要點（踩過坑之後改的）：
+    //
+    //   1) read 只給本人 —— 前端要顯示自己的姓名。
+    //   2) create 必須 role == 'teacher'，這是 白名單 的唯一入口。
+    //   3) update 允許「本人」更新自己的文件，**且不檢查現有 role**。
+    //      ★ 原本寫 `resource.data.role == 'teacher'` 是一個死鎖：
+    //        只要 role 曾經被寫成別的值（例如舊版本程式碼、Console 手改），
+    //        isTeacher() 仍然 true（exists 成立）所以看起來正常，
+    //        但 update 永久被拒 → 帳號再也無法自我修復。
+    //      本人自己改自己的白名單不會帶來風險（他本來就有權讀自己的），
+    //      而且這條路徑正是 ensureWhitelist() 的自癒機制。
+    //      真正的保護在於：不能改**別人**的文件。
+    match /teachers/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+
+      // 建立自己的（Email 註冊或 Google 首次登入）
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role == 'teacher';
+
+      // ★ 只允許改自己的（不管現有 role 是什麼）→ 帳號永遠能自我修復
+      allow update: if isSignedIn() && request.auth.uid == uid;
+
+      allow delete: if isTeacher() && request.auth.uid != uid;
+    }
+
+    // ═══════════════════════════════════════════
+    // 課程（assignment）
+    //   學生端：公開讀取（要靠 PIN 找課程，且離線時也要能讀）
+    //   老師端：建立 / 更新 / 刪除
+    //   ★ 文件 id 就是 "pin_1234"，學生 getDoc 一次就拿到，不必 list
+    // ═══════════════════════════════════════════
+    match /assignments/{assignmentId} {
+      // ★ 讀取完全公開：課程裡只有詞彙與例句，沒有學生資料。
+      //   而且學生端需要離線讀取（老師投影 PIN 時網路可能不穩）。
+      allow read: if true;
+      allow write: if teacherOrList();
+    }
+
+    // ═══════════════════════════════════════════
+    // AI 例句草稿：老師專用
+    // ═══════════════════════════════════════════
+    match /drafts/{draftId} {
+      allow read, write: if teacherOrList();
+    }
+
+    // ═══════════════════════════════════════════
+    // 其他一律拒絕
+    // ═══════════════════════════════════════════
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

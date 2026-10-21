@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#F97316">
+
+<!-- ★ 快取破壞守衛：靜態站沒有 build step，瀏覽器會長期快取舊 .js。
+     改了程式碼但使用者跑舊檔，症狀會被誤判成「修正沒生效」。
+     版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
+<script>
+(function () {
+  var BUILD = '2026-10-16-r43';
+  var KEY = 'pcs.build';
+  try {
+    var seen = localStorage.getItem(KEY);
+    if (seen === BUILD) return;
+    localStorage.setItem(KEY, BUILD);
+    if (seen && seen !== BUILD) {
+      location.replace(location.pathname + location.search + '?_r=' + Date.now());
+    }
+  } catch (e) { /* private mode：略過 */ }
+})();
+</script>
+<title>Progressive Cloze Spelling</title>
+<!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-16-r43">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-10-16-r43">
+</head>
+<body class="play-page">
+
+<header class="topbar">
+  <button class="rank-toggle" id="rankToggle" type="button" aria-label="Ranking">
+    <span class="rank-toggle-icon" aria-hidden="true">🏆</span>
+    <span data-i18n="rank.title">Class Ranking</span>
+  </button>
+
+  <div class="session-chip" id="sessionChip" hidden>
+    <span class="sc-avatar" aria-hidden="true">🙋</span>
+    <span class="sc-meta">
+      <span class="sc-name" id="scName">—</span>
+      <span class="sc-pin">PIN <b id="scPin">—</b><span class="sc-class" id="scClass"></span></span>
+    </span>
+  </div>
+
+  <div class="topbar-right">
+    <span class="score-pill" id="pointsPill" title="Points">⭐ <b id="pointsNum">0</b></span>
+    <span class="sync-badge" id="syncBadge"><span class="dot"></span><span id="syncText">Local</span></span>
+  </div>
+  <div class="lang-slot" id="langSlot"></div>
+</header>
+
+<div class="progress-wrap">
+  <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="progress-text">
+    <span id="progressLabel">—</span>
+    <span id="reviewLabel"></span>
+  </div>
+</div>
+
+<main class="stage" id="stage">
+  <div class="loading"><div class="spinner"></div><span>Loading…</span></div>
+</main>
+
+<!-- ── 語言切換掛載在 topbar 內 ── -->
+
+<!-- ── 班級排名抽屜 ── -->
+<div class="drawer-backdrop" id="drawerBg" hidden></div>
+<aside class="drawer" id="rankDrawer" hidden aria-label="Class ranking">
+  <header class="drawer-head">
+    <h2 data-i18n="rank.title">Class Ranking</h2>
+    <button class="drawer-close" id="rankClose" type="button" aria-label="Close">✕</button>
+  </header>
+  <div class="drawer-body" id="rankBody"></div>
+  <div class="rank-err" id="rankErr" hidden></div>
+  <footer class="drawer-foot">
+    <details>
+      <summary data-i18n="rank.howTitle">How to earn points</summary>
+      <ul class="how-list">
+        <li data-i18n="rank.how1">+10 for each correct letter</li>
+        <li data-i18n="rank.how3">+5 for each letter you fix after a mistake (max +10)</li>
+        <li data-i18n="rank.how4">+20 for finishing a whole word</li>
+      </ul>
+    </details>
+    <button class="btn-sec" id="rankRefresh" type="button" data-i18n="rank.refresh">Refresh</button>
+  </footer>
+</aside>
+
+<!-- ★ 載入失敗提示：module 語法錯誤時瀏覽器不會報錯到 UI，
+     這裡用一個全域錯誤監聽器把問題顯式呈現出來。 -->
+<script>
+window.__pcsFatal = function (msg) {
+  var d = document.getElementById('pcsFatal');
+  if (!d) {
+    d = document.createElement('div');
+    d.id = 'pcsFatal';
+    d.style.cssText = 'position:fixed;inset:auto 12px 12px 12px;z-index:9999;padding:14px 16px;' +
+      'background:#FEE2E2;border:2px solid #DC2626;border-radius:10px;color:#7F1D1D;' +
+      'font:600 13px/1.6 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.2)';
+    document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(d); });
+    if (document.body) document.body.appendChild(d);
+  }
+  d.textContent = 'PCS could not start: ' + msg;
+};
+window.addEventListener('error', function (e) {
+  if (e.target && e.target.tagName === 'SCRIPT') {
+    window.__pcsFatal('a script failed to load (' + (e.target.src || 'inline') + ')');
+  }
+});
+window.addEventListener('unhandledrejection', function (e) {
+  var r = e.reason;
+  if (r && r.message && /import|module|syntax/i.test(r.message)) {
+    window.__pcsFatal(r.message);
+  }
+});
+</script>
+
+<script type="module">
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-10-16-r43';
+import { diagnose } from './assets/js/blanking.js?v=2026-10-16-r43';
+import { localWordBank, loadWordList, analyseItem, buildItemInline } from './assets/js/wordbank.js?v=2026-10-16-r43';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-10-16-r43';
+import {
+  initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
+  progress, summarise, serialise, deserialise,
+} from './assets/js/scheduler.js?v=2026-10-16-r43';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech } from './assets/js/speech.js?v=2026-10-16-r43';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-10-16-r43';
+import { recordExposure } from './assets/js/exposure.js?v=2026-10-16-r43';
+import { enqueue } from './assets/js/outbox.js?v=2026-10-16-r43';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-10-16-r43';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-16-r43';
+import {
+  scoreRound, loadMyScore, addScore, fetchClassRanking, myRank, buildRankSession,
+  subscribeClassRanking,
+} from './assets/js/leaderboard.js?v=2026-10-16-r43';
+
+const CFG = PCS_CONFIG.experiment;
+initLang();
+
+const student = JSON.parse(sessionStorage.getItem('pcs.student') || '{}');
+
+// ★ sessionId 在這裡當場生成，學生不需要知道它的存在。
+//   組成：課程 PIN + 班號 + 日期 → 同一位學生同一天在同一課程只有一份成績。
+const today = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+})();
+const sessionId = `${student.pin || 'local'}_${student.classNo || 'x'}_${today}`;
+
+// ★ recordExposure 需要 sessionId 與 classNo 都在 student 物件裡。
+//   直接補上去，避免每次呼叫都要記得傳。
+student.sessionId = sessionId;
+
+// 課程詞彙（由 index.html 從 Firestore 讀好傳過來）
+const ASSIGNMENT_ITEMS = JSON.parse(sessionStorage.getItem('pcs.items') || '[]');
+
+// ★★★ Advanced mode（老師在建立 assignment 時勾選）
+//
+//   這份 assignment 改成考試模式：整個詞自行填寫，每個詞只出現一次。
+//   與 progressive 模式的差異全部集中在少數幾個判斷點（皆標記 ★ADV）：
+//     render()          → buildAdvancedLevel() 產生「全挖」的題目
+//     scheduler 用法→ 不排重測、不排 level 佇列（每詞只一次）
+//     submit()          → 比對「整串答案」而不是逐字母
+//     recordExposure()  → mode 記為 'dictation'（分析時可區分）
+//
+//   為什麼預設關閉：日常練習需要 L1/L2/L3 的漸進與回溯重測，
+//   那是 PCS 的研究核心。Advanced 是給小考／階段測驗用的另一種形態。
+const ADVANCED = !!student.advanced;
+
+// ★★★ 未登入閘門（2026-10-16 補）
+//
+//  問題：這頁原本沒有任何「沒有學生身分」的檢查。直接開 play.html 時
+//    · student = {}（sessionStorage 空的）
+//    · ASSIGNMENT_ITEMS = [] → init() 會 fallback 到內建詞庫
+//    → 學生**不輸入 PIN 也能開玩**，而且 exposure / session 會以
+//      空姓名、空學號、空 PIN 寫進 Firestore → 污染研究資料、
+//      後台出現來源不明的記錄、排行榜出現無名條目。
+//
+//  解法：缺 PIN 或缺課程詞彙 → 直接送回登入頁。
+//    （內建詞庫兜底仍然保留，但只服務「已登入、老師還沒建課」的學生）
+const NO_SESSION = !student.pin || !ASSIGNMENT_ITEMS.length;
+if (NO_SESSION) {
+  console.warn('[PCS] 沒有學生身分或課程詞彙，送回登入頁');
+  location.replace('index.html');
+}
+
+/**
+ * 造一個「整詞全挖」的 level 物件（格式與 analyseItem 的輸出相同，
+ * 所以 buildItemInline / submit / exposure 都不用改）。
+ *
+ * - blanks：全部字母的位置
+ * - targetWord：去掉冠詞的內容詞（a cake shop → cake shop）
+ * - words：逐詞的字母索引分组，讓 UI 能在詞與詞之間畫分隔
+ */
+function buildAdvancedLevel(rawWord) {
+  // ★ 去掉冠詞 / 介詞，學生要填的是「cake shop」不是「a cake shop」
+  const parts = String(rawWord || '').trim().toLowerCase()
+    .split(/\s+/).filter(Boolean);
+  const LEAD = new Set(['a', 'an', 'the']);
+  const content = parts.length > 1 && LEAD.has(parts[0]) ? parts.slice(1) : parts;
+  const targetWord = content.join(' ');
+
+  if (!targetWord) return null;
+
+  // blanks：目標詞（targetWord，含空格）裡所有要挖的位置 → 給輸入框用
+  // words：逐詞的「詞內」字母序號（0-based）→ 給 phrase.js 的
+  //        buildAdvancedInline 用（那邊是逐詞渲染，不能用全域偏移）
+  // ★ 兩套坐標系不同，寫錯的話第二個詞就不會被挖到（實測踩過）。
+  const words = [];
+  const blanks = [];
+  let pos = 0;
+  for (const w of content) {
+    const group = [];
+    for (let i = 0; i < w.length; i++) {
+      group.push(i);              // 詞內序號
+      blanks.push(pos + i);       // targetWord 序號
+    }
+    words.push(group);
+    pos += w.length + 1;          // +1 = 空格
+  }
+
+  return {
+    level: 1,
+    blanks,
+    // 顯示字串：整個詞都用底線（顯示時會被 slot-input 取代）
+    display: targetWord.split('').map(() => '_').join(' '),
+    target: {
+      pattern: 'advanced_all',
+      category: 'whole_word',
+      weight: 1,
+    },
+    targetWord,
+    words,                          // ★ UI 用來畫詞間分隔
+    isPhrase: content.length > 1,
+    advanced: true,
+    // ★ 冠詞（a / an / the）不算在 targetWord 裡，但方框列最前面要照樣顯示
+    //   （與 progressive 一致 → "a cake shop" 整列讀起來是完整題目）。
+    article: parts.length > 1 && LEAD.has(parts[0]) ? parts[0] : null,
+  };
+}
+
+const STAGE = document.getElementById('stage');
+
+let bank = [], state = null, current = null;
+let attempts = {}, hadError = false, questionStart = 0, answeredAll = false;
+
+// ══════════════════════════════════════════════
+// Boot
+// ══════════════════════════════════════════════
+mountLangToggle(document.getElementById('langSlot'));
+document.addEventListener('pcs:lang-changed', () => {
+  applyI18n(document);
+  fillSessionChip();      // ★ 晶片上的「學號」標籤也要跟著語言切換
+  // ★ 只有在「已結束」時才重畫結算頁。
+  //   否則切換語言會把進行中的題目跳到結算畫面。
+  if (state && isFinished(state)) renderResult();
+  else if (current) { drawQuestion(); updateChrome(); }
+  else { updateChrome(); }
+});
+
+['touchstart', 'click', 'keydown'].forEach(ev =>
+  window.addEventListener(ev, () => { primeSpeech(); unlockAudio(); }, { once: true, passive: true }));
+
+// ★ 頂部顯示「目前進入的 assignment 的 PIN」與「學生名字 / 學號」
+//   （學生答題時一眼看到自己是在哪個課程、用哪個名字，老師巡堂也方便核對）
+//
+//   ★ 命名勘誤：student.classNo 存的其實是「學號 Student No.」
+//     （來源是 index.html 的 join 表單，欄位標籤就是 "Student No."），
+//     不是班級號 —— 班級名稱另存於 student.className（由老師建立課程時指定）。
+//     因此這裡顯示時用正確的「No.」標籤，不再寫成「班#」。
+function fillSessionChip() {
+  const chip = document.getElementById('sessionChip');
+  if (!chip) return;
+  const name = student.studentName || student.name || '';
+  const pin = student.pin || '';
+  const no = student.classNo != null ? student.classNo : '';
+  // ★ 姓名和 PIN 都沒有 → 這是未登入狀態（即將被跳轉），
+  //   不要把殘缺的 "🙋 PIN" 顯示出來。
+  if (!name && !pin) { chip.hidden = true; return; }
+  const scName = document.getElementById('scName');
+  const scPin = document.getElementById('scPin');
+  const scNo = document.getElementById('scClass');
+  if (scName) scName.textContent = name;
+  if (scPin) scPin.textContent = pin;
+  if (scNo) scNo.textContent = no ? ` · ${t('chip.no', { n: no })}` : '';
+  chip.hidden = false;
+}
+fillSessionChip();
+
+
+
+async function init() {
+  // ★ 未登入 → 什麼都不做（上面已經 location.replace 回登入頁）。
+  //   少了這道短路，init() 會繼續跑 loadWordList() 把內建詞庫載進來，
+  //   在跳轉發生前先把一局遊戲開起來。
+  if (NO_SESSION) return;
+
+  // ★ 優先用「老師派的課程詞彙」；沒有課程（老師沒建）才退回內建詞庫，
+  //   這樣學生端永遠不會開天窗。
+  bank = ASSIGNMENT_ITEMS.length
+    ? ASSIGNMENT_ITEMS.map(toWordObj)
+    : await loadWordList({ n: CFG.targetWords, seed: CFG.shuffleSeed });
+
+  const saved = loadSavedState();
+  const ids = new Set(bank.map(w => w.wordId));
+  if (saved && saved.wordIds?.length) {
+    // 存的狀態必須包含目前詞庫的詞，否則接不上（換課程了）
+    if (saved.wordIds.every(id => ids.has(id))) {
+      state = deserialise(saved);
+
+      // ★★ 續玩時，把「老師後來才加進去的詞」補進這一局。
+      //
+      //   原本只檢查「存檔的詞都在詞庫裡」(⊆)，於是老師新增的詞
+      //   永遠不會被發出來 —— 症狀：學生明明做完了畫面上所有題目，
+      //   後台卻顯示 unfinished ／「N words not attempted」
+      //   （老師會問「為什麼沒讓我寫那兩個詞」）。
+      //
+      //   現在把缺的詞接在隊尾：這一局仍然會出到它們，進度不會丟。
+      //   ※ 同一天同一班號重入（sessionId 相同）才會走到這裡。
+      const known = new Set(state.order);
+      const added = bank.map(w => w.wordId).filter(id => !known.has(id));
+      if (added.length) {
+        state.order = [...state.order, ...added];
+        state.wordIds = [...new Set([...state.wordIds, ...added])];
+        console.warn('[PCS] 這份作業新增了', added.length, '個詞，已接進本局：', added);
+      }
+
+      render();
+      return;
+    }
+    console.warn('[PCS] 存檔與目前作業不一致，直接開新的一局');
+  }
+
+  state = initState(bank.map(w => w.wordId), { advanced: ADVANCED });
+  saveState();
+  render();
+}
+
+/**
+ * 跳過無法出題的詞。
+ * ★ 必須同時處理兩條路徑，否則會無限迴圈：
+ *   - 新詞：把 poolIndex 往前推，標記為已掌握（它不會再被取出來）
+ *   - 重測：retryQueue 裡的項目必須移除，否則 nextItem 會一直回傳它
+ */
+function skipUnplayable(wordId, item) {
+  if (item?.kind === 'retry') {
+    state.retryQueue = state.retryQueue.filter(q => q.wordId !== wordId);
+  }
+  if (item?.kind === 'advance') {
+    state.levelQueue = state.levelQueue.filter(id => id !== wordId);
+  }
+  if (item?.kind === 'new') {
+    state.poolIndex = Math.max(state.poolIndex, state.order.indexOf(wordId) + 1);
+  }
+  state.masteredWords.add(wordId);
+  saveState();
+
+  // 避免一次跳太多詞造成畫面空白太久；全部跳完就結束這一局
+  setTimeout(render, 0);
+}
+
+/** Firestore 的 assignment item → 遊戲用的 wordObj */
+function toWordObj(it) {
+  return {
+    wordId: it.itemId || `a_${String(it.word).replace(/[^a-z]+/g, '_')}`,
+    word: String(it.word || '').trim().toLowerCase(),
+    sentences: Array.isArray(it.sentences) ? it.sentences.filter(Boolean) : [],
+    imageDataUrl: it.imageDataUrl || null,
+    imageEmoji: it.imageEmoji || null,
+    category: it.category || 'place',
+    active: true,
+  };
+}
+
+const loadSavedState = () => {
+  try {
+    const raw = localStorage.getItem(`pcs.state.${student.sessionId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+
+function saveState() {
+  try {
+    localStorage.setItem(`pcs.state.${student.sessionId}`, JSON.stringify(serialise(state)));
+  } catch (e) { console.warn('save failed', e); }
+}
+
+// ══════════════════════════════════════════════
+// Render a question
+// ══════════════════════════════════════════════
+// ★ 自動朗讀用的去重：只在「換了一個新單詞」時才讀，
+//   同一個詞的 L2 / L3 不重複朗讀，避免課堂上一直重複出聲。
+let lastAutoSpokeWordId = null;
+
+function render() {
+  if (isFinished(state)) { renderResult(); return; }
+
+  const item = nextItem(state);
+  if (!item) { renderResult(); return; }
+
+  const wordObj = bank.find(w => w.wordId === item.wordId);
+  if (!wordObj) { state.poolIndex++; render(); return; }
+
+  const analysis = analyseItem(wordObj.word);
+
+  // ★ 防呆：某些字串（例如 ping_pong、don't、t-shirt、單字母 a）
+  //   產生 0 關。沒有關卡就沒辦出題目 —— 直接讀 lvl 會是 undefined，
+  //   然後 `lvl.targetWord` 拋 TypeError，整局卡在「Loading failed」。
+  //   這裡寧可跳過這個詞，也不要讓學生看到壞掉的畫面。
+  if (!analysis?.levels?.length) {
+    console.warn('[PCS] 這個詞無法產生關卡，已跳過：', wordObj.word);
+    skipUnplayable(wordObj.wordId, item);
+    return;
+  }
+
+  // ★ Progressive 的核心：答對 L1 要接著做 L2，做完 L2 接 L3……
+  //   而不是答對一次就把整個詞標記為「已掌握」。
+  //   下一關 = 該詞目前已完成的關卡數 + 1。
+  const done = state.levelProgress.get(wordObj.wordId) || 0;
+  const level = item.kind === 'retry'
+    ? item.level
+    : Math.min(done + 1, analysis.levels.length);
+  const isAdvance = item.kind === 'advance';
+  // ★★★★★ Advanced mode（整詞自行填寫的考試模式）
+  //
+  //  老師在建立 assignment 時勾選 Advanced mode，這份試卷就變成：
+  //    · 例句照樣顯示（給語境）
+  //    · 圖片照樣顯示
+  //    · 單詞與詞組**全部**字母挖空成下劃線（不是只挖 pattern）
+  //    · 每個詞只出現一次（沒有 L1/L2/L3 階梯、不重測）
+  //
+  //  作法：自己造一個「整詞全挖」的 level 物件，
+  //  而不去改 analyseItem 的輸出 —— 這樣 progressive 模式完全不受影響。
+  const lvl = ADVANCED
+    ? buildAdvancedLevel(wordObj.word)
+    : analysis.levels[Math.min(level - 1, analysis.levels.length - 1)];
+
+  // ★ 最後一道保險： level 算成 0 或負數時會取到 undefined
+  if (!lvl) {
+    console.warn('[PCS] level 超出範圍，已跳過：', wordObj.word, level);
+    skipUnplayable(wordObj.wordId, item);
+    return;
+  }
+
+  const sents = wordObj.sentences?.length ? wordObj.sentences : ['___'];
+  const sentence = sents[(item.exposureIndex ?? 0) % sents.length];
+  const inline = buildItemInline(sentence, wordObj.word, lvl);
+
+  // ★★ 例句挖空失敗時，絕對不能把整句原樣顯示出來。
+  //   那等於直接把答案送給學生（例："I love cake shops." 讓人看見 shop 的 s）。
+  //   寧可顯示一句不含目標詞的提示，也不要洩漏答案。
+  const inlineOk = !!inline && inline.segments.some(s => s.t === 'slot');
+  const safeSentence = inlineOk ? sentence : '_____';
+
+  current = {
+    item, wordObj, analysis,
+    level: lvl.level,
+    blanks: lvl.blanks,
+    target: lvl.target,
+    targetWord: lvl.targetWord || wordObj.word,
+    // ★ADV 考試模式需要用到逐詞的字母索引（畫詞間分隔）
+    levelObj: lvl,
+    advanced: ADVANCED,
+    sentence: inlineOk ? sentence : null,   // ★ null = 沒有可安全顯示的例句
+    inline: inlineOk ? inline : null,
+    exposureIndex: item.exposureIndex ?? 0,
+  };
+
+  attempts = {};
+  hadError = false;
+  answeredAll = false;
+  questionStart = performance.now();
+
+  state.exposureCount.set(wordObj.wordId, (state.exposureCount.get(wordObj.wordId) ?? 0) + 1);
+
+  drawQuestion();
+  updateChrome();
+  saveState();
+}
+
+function drawQuestion() {
+  const { wordObj, blanks, sentence, inline, item, targetWord } = current;
+
+  // 進度：顯示目前是第幾關 / 這個詞共幾關，讓學生知道還有下一步
+  const totalLv = current?.analysis?.levels?.length ?? 1;
+  // ★ADV 考試模式沒有「關卡」概念（每詞只出現一次），所以不顯示 Level chip，
+  //   只保留進度（第 n / 共 m 題）。顯示「Level 1 of 2」會誤導學生以為還有下一關。
+  const badge = item.kind === 'retry'
+    ? `<span data-i18n="game.retry">Try again</span>`
+    : `<span data-i18n="game.progress" data-n="${Math.min(state.poolIndex + 1, state.order.length)}" data-total="${state.order.length}"></span>`
+      + (ADVANCED ? '' : `<span class="lv-chip">Level ${current?.level ?? 1} of ${totalLv}</span>`);
+
+  // ★ Only the target word gets input boxes. No word is ever revealed in text.
+  // ★ 用 CSS Grid 的兩列：第 1 列字母框、第 2 列答案格。
+  //   每個位置都有答案格（沒錯時是空的），才能保證上下嚴格對齊。
+  // ★ 每個位置都配一個同寬的答案格（id 對應字母位置），
+  //   答錯時逐格填入正確字母 → 上下嚴格對齊，不會像浮動 pill 那樣偏移。
+  //
+  // ★★★ 每個字母位置做成一個「欄位容器」（.cell），上下兩格放在同一個容器裡。
+  //
+  // 為什麼不用「input 與 answer 交錯 + grid-row 指定行號」：
+  //   那個做法依賴 grid 的 auto-placement 演算法，把元素依序填進欄位。
+  //   ★ 在 Safari（iPad 學生端）上，`.word-sep` 這種「跨兩列」的元素會讓
+  //     auto-placement 算錯 —— 結果下方答案格跟上方輸入框錯開一格，
+  //     學生看到「上排 s t a t i o、下排 s t a t i」對不上。
+  //   （症狀：只有詞組、只有 iPad、只有 advanced/多詞時會出現。）
+  //
+  //   包成 .cell 之後，每一欄是一個獨立的 flex column，
+  //   上下的對齊由容器內部保證，完全不依賴 grid 的自動排版。
+  const boxes = [...targetWord].map((ch, i) => {
+    // 空格：只留一個分隔欄（上下都空白）
+    if (ch === ' ') {
+      return `<span class="cell cell-sep" aria-hidden="true"></span>`;
+    }
+    const upper = blanks.includes(i)
+      ? `<input class="slot-input" type="text" inputmode="text"
+           maxlength="1" autocomplete="off" autocapitalize="off" autocorrect="off"
+           spellcheck="false" data-index="${i}" aria-label="Letter ${i + 1}">`
+      : `<span class="slot-given">${escapeHtml(ch)}</span>`;
+    return `<span class="cell">${upper}<span class="slot-answer" id="ans-${i}" aria-hidden="true"></span></span>`;
+  }).join('');
+
+  const inlineHtml = inline
+    ? inline.segments.map(s => {
+        if (s.t === 'text') return escapeHtml(s.v);
+        if (s.t === 'given') return `<span class="given">${escapeHtml(s.v)}</span>`;
+        // ★ data-bi = 目標詞的字母序號，讓 syncInline 能正確配對
+        //   （同一個詞在句中出現多次時，順序配對會錯位）
+        return `<span class="slot-inline" data-bi="${s.index}"></span>`;
+      }).join('')
+    // ★ 挖不到目標詞 → 只顯示提示，不顯示原句（否則答案直接露出來）
+    : '<span class="given">_____</span>';
+
+  // ★ emoji 解析順序：
+  //   1. 老師上傳的圖片（imageDataUrl）
+  //   2. 課程建立時就存好的 emoji（imageEmoji）
+  //   3. 現場用 emojiForWord(word) 解析 —— 這一步是舊課程的後備：
+  //      以前的版本沒把 emoji 寫進 assignment，只靠 category 猜，
+  //      而 category 缺席時一律當 'place' → 每個詞都變 🏠。
+  //      改成「用詞本身去查」，a cake shop 就會拿到 🍰。
+  const fig = wordObj.imageDataUrl
+    ? `<img src="${wordObj.imageDataUrl}" alt="">`
+    : `<div class="placeholder">${wordObj.imageEmoji || emojiForWord(wordObj.word, wordObj.category)}</div>`;
+
+  const n = blanks.length;
+  const hintKey = n > 1 ? 'game.needLetters' : 'game.needLetter';
+
+  // ★ 冠詞（a / an / the）以「已給定字母框」的形式排在題目最前面 ——
+  //   每一顆都跟後面的字母框**同款同尺寸**，整列讀起來就是
+  //   "a cake shop" / "an art room" / "a cinema"，學生看到的是完整題目，
+  //   只有被挖空的那幾格要填。
+  //
+  //   ★ 為什麼不是一顆圓形小 pill：pill 的字號是字母的 0.6 倍，
+  //     同一列會出現兩種大小的字（"a cake shop" 的 a 比 c / a / k 小一號），
+  //     使用者直接回報「那個 a 的大小又不一樣了」。
+  //     現在冠詞逐字母走 .art-given（與 .slot-given 同款），尺寸由 CSS 保證一致。
+  //
+  //   ★ 為什麼不分「短語 / 單詞」：同一個作業裡若 "a cake shop" 顯示 a、
+  //     但 "a cinema" 不顯示，老師會看到兩種格式。所以只要該題有冠詞就顯示，
+  //     整份作業的方框列長得一模一樣。
+  //
+  //   ★ 冠詞與內容詞之間放一個 .cell-sep：與「詞與詞」的間隔相同
+  //     （a | cake shop），整列的字距讀起來才像一句正常的短語。
+  const artWord = current.levelObj?.article || '';
+  const artPrefix = artWord
+    ? [...artWord]
+        .map(ch => `<span class="cell"><span class="art-given">${escapeHtml(ch)}</span></span>`)
+        .join('')
+      + `<span class="cell cell-sep" aria-hidden="true"></span>`
+    : '';
+
+  STAGE.innerHTML = `
+    <span class="level-tag">${badge}</span>
+
+    <div class="word-figure">${fig}</div>
+
+    <div class="sentence-card">
+      <div class="sentence-row">
+        <div class="sentence-text">${inlineHtml}</div>
+        <button class="speaker-btn" id="speakBtn" type="button"
+                aria-label="Listen" data-i18n-attr="aria-label:game.listen">🔊</button>
+      </div>
+    </div>
+
+    <div class="cloze-row" id="clozeRow">${artPrefix}${boxes}</div>
+
+    <div class="diagnosis idle" id="diag" data-i18n="${hintKey}" data-n="${n}"></div>
+
+    <div class="actions">
+      <button class="btn-skip" id="skipBtn" type="button" data-i18n="game.skip">Skip</button>
+      <button class="btn-skip" id="retryBtn" type="button" data-i18n="game.retry" hidden>Try again</button>
+      <button class="btn-submit" id="submitBtn" type="submit" disabled data-i18n="game.check">Check</button>
+    </div>
+  `;
+
+  applyI18n(STAGE);
+  // progress label 需要插值
+  const lt = STAGE.querySelector('.level-tag span[data-i18n="game.progress"]');
+  // ★ 這裡必須跟 badge 用同一個 Math.min() —— poolIndex 在 nextItem() 裡
+  //   已經先++ 了（表示「這個詞已發出」），所以 +1 會比實際多 1。
+  //   Advanced mode 尤其明顯：2 個詞的最後一題會顯示「Word 3 of 2」。
+  if (lt) lt.textContent = t('game.progress', {
+    n: Math.min(state.poolIndex, state.order.length),
+    total: state.order.length,
+  });
+  const dg = STAGE.querySelector('#diag');
+  if (dg) dg.textContent = t(hintKey, { n });
+
+  wireQuestion();
+  fitClozeRow();          // ★ 依詞長自動調整格寬 → 保證單行、上下對齊
+  focusFirst();
+
+  // ★ 新單詞出現時自動朗讀一次 —— 只讀「單詞 / 詞組」本身，不讀例句。
+  //   - 想聽「例句 + 單詞」時，由學生自己按右下角的小喇叭（見下方 speakBtn 的 click）。
+  //   - 只在「換了新單詞」時讀，同一詞的 L2/L3 不重複朗讀
+  //   - 瀏覽器在首次使用者手勢前會擋住語音，這裡不強求，try/catch 忽略
+  if (current.item.wordId !== lastAutoSpokeWordId) {
+    lastAutoSpokeWordId = current.item.wordId;
+    try {
+      speakWord(current.targetWord, { rate: 0.7, lang: PCS_CONFIG.ui.lang });
+    } catch { /* autoplay 限制：忽略 */ }
+  }
+}
+
+/** 視窗尺寸改變（轉向、iPad 分屏）時重新計算，否則會溢出或折行 */
+let _fitTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(_fitTimer);
+  _fitTimer = setTimeout(fitClozeRow, 120);
+});
+window.addEventListener('orientationchange', () => setTimeout(fitClozeRow, 200));
+
+/**
+ * ★★★ 讓整列字母「永遠排在同一行」。
+ *
+ * 為什麼需要：`--letter-size` 是固定值（桌機 46px）。"police station"
+ * 有 13 格，需要 13×46 + 間距 ≈ 743px，但 .stage 可用寬度只有 684px
+ * → 之前 flex-wrap:wrap 會把整列折成兩行，答案列被拆散、看起來像沒對齊。
+ *
+ * 作法：先在自然尺寸下量 scrollWidth，再依可用寬度等比縮小
+ * （同時縮 gap，短詞不會被縮到）；下限 26px，低於下限就不再縮，
+ * 改由 .cloze-row 的 overflow-x 橫向滑動，仍然不折行。
+ */
+function fitClozeRow() {
+  const row = document.getElementById('clozeRow');
+  if (!row || !row.children.length) return;
+
+  const host = row.parentElement;
+  const cs = getComputedStyle(host);
+  const avail = host.clientWidth
+    - parseFloat(cs.paddingLeft || 0)
+    - parseFloat(cs.paddingRight || 0);
+  if (avail <= 0) return;
+
+  // 1) 先回到 CSS 的預設尺寸，量出「自然寬度」
+  row.style.removeProperty('--letter-size');
+  row.style.removeProperty('--letter-gap');
+
+  const base = parseFloat(getComputedStyle(row).getPropertyValue('--letter-size')) || 46;
+  let size = base;
+  let gap = 10;
+  const MIN_SIZE = 20;
+  const MIN_GAP = 3;
+
+  // 2) 迭代收斂：量一次 → 依比例縮 → 再量 → 再縮。
+  //    單次比例縮放會因為 border / 捨入而留下幾 px 溢出，所以用迴圈逼近
+  //    （最多 5 輪，每輪只會更小，一定會停）。
+  for (let i = 0; i < 5; i++) {
+    const need = row.scrollWidth;
+    if (need <= avail || size <= MIN_SIZE) break;
+    const r = avail / need;
+    size = Math.max(MIN_SIZE, Math.floor(size * r) - 1);
+    gap = Math.max(MIN_GAP, Math.floor(gap * r));
+    row.style.setProperty('--letter-size', size + 'px');
+    row.style.setProperty('--letter-gap', gap + 'px');
+  }
+
+  // 3) 真的塞不下（超長詞）→ 保留 overflow-x 橫向滑動，仍然不折行
+  row.dataset.fitted = '1';
+}
+
+function wireQuestion() {
+  const inputs = [...STAGE.querySelectorAll('.slot-input')];
+  // ★ 記住學生目前停在哪一格 —— 點小喇叭後要還原到這裡，
+  //   否則會跳回第一格，學生等於被迫重新點一次。
+  let lastFocusedInput = inputs[0] ?? null;
+
+  inputs.forEach((el, n) => {
+    el.addEventListener('input', () => {
+      // 只留一個英文字母，自動轉小寫
+      const v = el.value.replace(/[^a-zA-Z]/g, '').slice(-1);
+      el.value = v ? v.toLowerCase() : '';
+      el.classList.toggle('filled', !!el.value);
+      lastFocusedInput = el;
+      syncInline();
+      checkReady();
+
+      // ★★ 已看過答案（答錯後）又改對 → 立刻給綠框 + 正確音效。
+      //   研究上不算分、資料上不算對，但學生必須得到「你改對了」的回饋，
+      //   否則他會以為訂正是無效行為，下次不會再檢查自己寫的字。
+      if (answeredAll) checkCorrection(el);
+
+      // ★ 填完自動跳下一格 —— iPad 上少一次點擊
+      if (el.value && n < inputs.length - 1) inputs[n + 1].focus();
+    });
+
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !el.value) {
+        e.preventDefault();
+        if (n > 0) { inputs[n - 1].focus(); inputs[n - 1].value = ''; inputs[n - 1].classList.remove('filled'); }
+        syncInline(); checkReady();
+      }
+      if (e.key === 'Enter') { e.preventDefault(); enterPressed = true; }
+      if (e.key === 'ArrowRight') { e.preventDefault(); inputs[Math.min(n + 1, inputs.length - 1)]?.focus(); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); inputs[Math.max(n - 1, 0)]?.focus(); }
+    });
+
+    // iPad 上 focus 需要在觸控事件內才會彈鍵盤，這裡已經是同步流程
+    el.addEventListener('focus', () => {
+      lastFocusedInput = el;
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  });
+
+  // ★★ 小喇叭：點了之後必須把焦點還回輸入框。
+  //
+  //  症狀（iPad 最嚴重）：點小喇叭發音 → 焦點離開 input → iPad 收起鍵盤
+  //  → 學生要再點一次輸入框才能繼續打字，動作變成「聽音 → 點框 → 打字」，
+  //  而且每次聽音都要重來一次。
+  //
+  //  解法：mousedown/touchstart 時 preventDefault()（阻止瀏覽器把焦點移走），
+  //  再在 click 之後手動 focus 回「剛才那一格」。
+  //  ★ 記住是哪一格：學生可能正在輸入中間某一格，不該跳回第一格。
+  const speakBtn = STAGE.querySelector('#speakBtn');
+  if (speakBtn) {
+    const keepFocus = (e) => e.preventDefault();   // 阻止 blur
+    speakBtn.addEventListener('mousedown', keepFocus);
+    speakBtn.addEventListener('touchstart', keepFocus, { passive: false });
+
+    speakBtn.addEventListener('click', () => {
+      playTap();
+      speakBtn.classList.add('speaking');
+      // ★ sentence 可能是 null（例句挖空失敗時）→ 只唸單詞
+      if (current.sentence) {
+        speakSentenceAndWord(current.sentence, current.targetWord,
+          { rate: PCS_CONFIG.ui.speechRate, lang: PCS_CONFIG.ui.lang });
+      } else {
+        speakWord(current.targetWord, { rate: 0.7, lang: PCS_CONFIG.ui.lang });
+      }
+      setTimeout(() => speakBtn.classList.remove('speaking'), 2200);
+
+      // ★ 唸完（或立刻）把焦點放回學生原本在的那一格，鍵盤不會消失。
+      const back = lastFocusedInput || inputs[0];
+      back?.focus({ preventScroll: true });
+      try { back?.setSelectionRange?.(back.value.length, back.value.length); } catch {}
+    });
+  }
+
+  STAGE.querySelector('#submitBtn')?.addEventListener('click', submit);
+  STAGE.querySelector('#skipBtn')?.addEventListener('click', skip);
+}
+
+/**
+ * ★ 訂正回饋：答錯後看過答案，學生又自己改對了 → 綠框 + 正確音效。
+ *
+ * 為什麼需要：
+ *   答錯時畫面會把正確字母顯示在下方（這是教學設計）。學生看完可以自己
+ *   改寫輸入框 —— 但原本的程式在 `answeredAll = true` 之後就完全不理
+ *   輸入變化了，所以「改對」這個動作沒有任何回饋。
+ *   對小學生來說，這等於告訴他「改了也沒用」，下次就不會檢查自己寫的字。
+ *
+ * ★ 刻意「不」做的事（研究考量）：
+ *   不加分、不改 probes、不重寫 exposure、不推進關卡。
+ *   這一筆的作答紀錄已經寫成「錯」，研究資料必須如實反映第一次作答；
+ *   訂正是教學行為，不是測量行為。
+ */
+function checkCorrection(el) {
+  const bi = Number(el.dataset.index);
+  const expect = current?.targetWord?.[bi];
+  if (!expect) return;
+  const got = el.value.trim().toLowerCase();
+
+  // 答案格也標成「已訂正」，讓學生看到上下兩列都對齊了
+  const ans = STAGE.querySelector(`#ans-${bi}`);
+
+  if (got === expect) {
+    if (el.dataset.fixed === '1') return;      // 已在正確狀態，不要重複播音效
+    el.dataset.fixed = '1';
+    el.classList.remove('no');
+    el.classList.add('ok', 'just-fixed');
+    if (ans) ans.classList.remove('miss');
+
+    const diag = STAGE.querySelector('#diag');
+    if (diag) {
+      diag.className = 'diagnosis ok';
+      diag.textContent = t('game.correct');
+    }
+    setTimeout(() => el.classList.remove('just-fixed'), 700);
+
+    // ★ 不在此處逐字母播音效 —— 只在「整個詞都改對」時給「一次」肯定，
+    //   否則每改對一個字母就響一聲，對小學生反而是干擾（使用者明確反饋）。
+    const inputs = STAGE.querySelectorAll('.slot-input');
+    let allFixed = true;
+    inputs.forEach(inp => {
+      const i = Number(inp.dataset.index);
+      if (inp.value.trim().toLowerCase() !== (current?.targetWord?.[i] ?? '')) allFixed = false;
+    });
+    if (allFixed) {
+      playCorrect();                            // 整詞訂正完成：一次正確音效
+      const row = document.getElementById('clozeRow');
+      if (row) {
+        const r = row.getBoundingClientRect();
+        confettiBurst(r.left + r.width / 2, r.top + r.height / 2);
+      } else {
+        confettiBurst();
+      }
+    }
+  } else {
+    // 又改錯（或清空）→ 回到錯的樣子
+    if (el.dataset.fixed !== '1') return;
+    delete el.dataset.fixed;
+    el.classList.remove('ok', 'just-fixed');
+    el.classList.add('no');
+    if (ans) ans.classList.add('miss');
+  }
+}
+
+/**
+ * 「再試一次」—— 答錯之後給學生一次重做的機會。
+ *
+ * 做什麼：
+ *   清空所有填空、收起下方已揭示的答案列、把按鈕還原成 Check，
+ *   讓這一題回到「還沒作答」的狀態，可以重新輸入一次。
+ *   已給定的字母（.slot-given）保持原樣 —— 重做的是作答，不是換題目。
+ *
+ * 研究資料：已經寫入的「第一次答錯」不會被改寫（如實反映第一次作答）。
+ *   重做後再送出，會以新的一次 attempt 記錄（attemptNo 累加），
+ *   這對「這個字母要試幾次才對」這個指標反而更有價值。
+ */
+function tryAgain() {
+  const diag = STAGE.querySelector('#diag');
+  const btn = STAGE.querySelector('#submitBtn');
+
+  // 清空填空 + 移除所有作答狀態樣式
+  STAGE.querySelectorAll('.slot-input').forEach(el => {
+    el.value = '';
+    el.classList.remove('no', 'ok', 'just-fixed', 'filled');
+    delete el.dataset.fixed;
+    el.disabled = false;
+  });
+
+  // 收起下方已揭示的正確字母
+  STAGE.querySelectorAll('.slot-answer').forEach(a => {
+    a.className = 'slot-answer';
+    a.textContent = '';
+  });
+
+  // 例句裡標紅的空格也一併還原
+  STAGE.querySelectorAll('.sentence-text .slot-inline')
+    .forEach(sl => sl.classList.remove('ok', 'no', 'filled'));
+
+  // 提示文字回到「請填入欠缺的字母」
+  if (diag) {
+    diag.className = 'diagnosis idle';
+    const key = diag.dataset.i18n;
+    diag.textContent = key ? t(key, { n: diag.dataset.n }) : '';
+  }
+
+  // 按鈕復原：Check（未填完時禁用）／Skip 回來／再試一次收起
+  if (btn) {
+    btn.textContent = t('game.check');
+    btn.classList.remove('next');
+    btn.onclick = null;
+    btn.disabled = true;
+  }
+  const retryEl = STAGE.querySelector('#retryBtn');
+  if (retryEl) { retryEl.hidden = true; retryEl.onclick = null; }
+  const skipEl = STAGE.querySelector('#skipBtn');
+  if (skipEl) skipEl.hidden = false;
+
+  answeredAll = false;
+  saveState();
+  checkReady();
+  focusFirst();
+}
+
+function syncInline() {
+  // 句子裡的空格跟著輸入狀態變色，但永遠不顯示字母。
+  // ★ 例句裡同一個詞可能出現多次 → slot 數量會比答案框多。
+  //   所以用 data-bi（目標詞的字母序號）配對，而不是靠順序。
+  //   這樣 "I say no, NO, No." 三個 no 會一起對應到同一個答案框。
+  const slots = STAGE.querySelectorAll('.sentence-text .slot-inline');
+  slots.forEach(slot => {
+    const bi = slot.dataset.bi;
+    const el = STAGE.querySelector(`.slot-input[data-index="${bi}"]`);
+    slot.classList.toggle('filled', !!(el && el.value));
+    slot.classList.remove('ok', 'no');
+  });
+}
+
+function checkReady() {
+  const all = [...STAGE.querySelectorAll('.slot-input')].every(el => /[a-zA-Z]/.test(el.value));
+  const b = STAGE.querySelector('#submitBtn');
+  if (b) b.disabled = !all;
+}
+
+function focusFirst() {
+  const first = STAGE.querySelector('.slot-input');
+  if (!first) return;
+  // 用 touch 事件觸發確保 iPad 彈鍵盤
+  requestAnimationFrame(() => {
+    first.focus({ preventScroll: false });
+    first.click?.();
+  });
+}
+
+// ★ Enter 統一在這裡處理一次。
+//   ★ 之前 input 層與 document 層各處理一次，結果答錯時按一次 Enter
+//     會「先判分、再馬上跳題」—— 學生根本看不到正確字母。已修正。
+let enterGuard = 0;
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  const btn = STAGE.querySelector('#submitBtn');
+  if (!btn || btn.disabled) return;
+
+  // 同一個按鍵事件可能被兩個 listener 看到，用時間戳去重
+  const now = performance.now();
+  if (now - enterGuard < 60) return;
+  enterGuard = now;
+
+  e.preventDefault();
+  btn.click();
+});
+
+// ══════════════════════════════════════════════
+// Judge
+// ══════════════════════════════════════════════
+async function submit() {
+  if (answeredAll) return;
+  const { wordObj, blanks, target, sentence, level, item, targetWord, analysis } = current;
+  const diag = STAGE.querySelector('#diag');
+  const btn = STAGE.querySelector('#submitBtn');
+  btn.disabled = true;
+
+  const probes = [];
+  let allCorrect = true;
+  let firstWrong = null;
+
+  for (const bi of blanks) {
+    const el = STAGE.querySelector(`.slot-input[data-index="${bi}"]`);
+    const got = el.value.trim().toLowerCase();
+    const expect = targetWord[bi];
+    const correct = got === expect;
+
+    el.classList.remove('no');
+    if (correct) {
+      el.classList.add('ok');
+    } else {
+      allCorrect = false;
+      hadError = true;
+      if (!firstWrong) firstWrong = { bi, got, expect };
+      el.classList.add('no');
+    }
+
+    attempts[bi] = (attempts[bi] ?? 0) + 1;
+    probes.push({
+      i: bi, expect, got, correct,
+      ms: Math.round(performance.now() - questionStart),
+      attemptNo: attempts[bi],
+      phonClass: target.category,
+      errorCode: correct ? null : diagnose(targetWord, blanks, bi, got, target).code,
+    });
+  }
+
+  const durationMs = Math.round(performance.now() - questionStart);
+
+  // ★ 錯了 → 不自動跳題，停住等使用者按 Enter 或按 Next。
+  //   使用者要自己決定「看多久」，這對小學生很重要 ——
+  //   自動跳走等於剝奪了他們消化回饋的時間。
+  if (!allCorrect) {
+    playWrong();
+    diag.className = 'diagnosis no';
+    diag.textContent = diagnose(targetWord, blanks, firstWrong.bi, firstWrong.got, target).en;
+
+    // ★ 答錯時，整個單詞逐格顯示在正下方，每格與上方框同寬 → 嚴格對齊。
+    //   每個位置都填上正確單詞的對應字母（包含已給的、答對的），
+    //   所以下方那一行會自然拼出完整單詞，而不是零散補丁。
+    //   原本答錯的那幾格加 .miss（淡橘底），一眼看出錯在哪。
+    //
+    // ★★ 這裡絕對不能用 forEach 的 index（i）去索引 targetWord！
+    //    因為空格那一格是 .cell-sep，本身「沒有」.slot-answer，
+    //    所以 .slot-answer 的數量比單詞長度少（少掉每一個空格），
+    //    用 i 索引會在空格之後整體往前錯開一格：
+    //    顯示成 "police " + "statio"，下排的 station 整個往右竄一格。
+    //    正解：字母序號寫在 id（ans-<序號>）上，直接從 id 取回真正的序號。
+    STAGE.querySelectorAll('.slot-answer').forEach((a) => {
+      const li = Number(a.id.slice(4));      // "ans-12" → 12（含空格位置的真實序號）
+      a.className = 'slot-answer show';
+      a.textContent = Number.isFinite(li) ? (targetWord[li] ?? '') : '';
+    });
+    for (const bi of blanks) {
+      const el = STAGE.querySelector(`.slot-input[data-index="${bi}"]`);
+      const ans = STAGE.querySelector(`#ans-${bi}`);
+      if (!el || !ans) continue;
+      if (el.value.trim().toLowerCase() !== targetWord[bi]) ans.classList.add('miss');
+    }
+
+    // ★ 答錯的資料一樣要記錄 —— 否則研究資料會漏掉「哪個字母最容易錯」，
+    //   這正是 PCS 的核心指標。回溯佇列也靠這裡。
+    for (const p of probes) {
+      recordAnswer(state, {
+        wordId: wordObj.wordId, level, probeIndex: p.i,
+        correct: p.correct, expect: p.expect, got: p.got,
+        phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
+      });
+    }
+
+    const scWrong = scoreRound({ probes, durationMs, wordCompleted: false, hadError: true });
+    addScore(student.sessionId, scWrong);
+    updateChrome();
+
+    enqueue(recordExposure({
+      student, word: targetWord, wordId: wordObj.wordId, sentence,
+      phrase: wordObj.word, isPhrase: !!current.analysis?.isPhrase,
+      level, targetPattern: target.pattern, targetCategory: target.category,
+      targetWeight: target.weight, blanks, probes, durationMs,
+      exposureIndex: current.exposureIndex,
+      isRetry: item.kind === 'retry',
+      mode: ADVANCED ? 'dictation' : 'progressive',
+      points: scWrong.points,
+    }));
+
+    // 句子裡對應的空格也標紅，讓學生知道錯在句中哪裡
+    STAGE.querySelectorAll('.sentence-text .slot-inline').forEach(sl => sl.classList.add('no'));
+
+    // 按鈕變成 Next
+    btn.textContent = t('game.next');
+    btn.disabled = false;
+    btn.classList.add('next');
+    btn.onclick = () => { btn.onclick = null; render(); };
+
+    // ★ 已經答錯了 → 把 Skip 換成「再試一次」，給學生一次重做的機會。
+    //   答完之後 Skip 已經沒有意義（答案都顯示了），換成重做更實用。
+    const skipEl = STAGE.querySelector('#skipBtn');
+    if (skipEl) skipEl.hidden = true;
+    const retryEl = STAGE.querySelector('#retryBtn');
+    if (retryEl) { retryEl.hidden = false; retryEl.onclick = tryAgain; }
+
+    answeredAll = true;      // 已判分，但等使用者確認才換題
+    saveState();
+    return;
+  }
+
+  // ── 全對 ──
+  playCorrect();
+  diag.className = 'diagnosis ok';
+  diag.textContent = t('game.correct');
+  // ★ 拼對一個詞 → 在單詞框附近噴一小簇彩帶，小學課堂很有成就感
+  const row = document.getElementById('clozeRow');
+  if (row) {
+    const r = row.getBoundingClientRect();
+    confettiBurst(r.left + r.width / 2, r.top + r.height / 2);
+  } else {
+    confettiBurst();
+  }
+  STAGE.querySelectorAll('.slot-answer').forEach(a => a.textContent = '');
+
+  for (const p of probes) {
+    recordAnswer(state, {
+      wordId: wordObj.wordId, level, probeIndex: p.i,
+      correct: p.correct, expect: p.expect, got: p.got,
+      phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
+    });
+  }
+
+  // ── 計分 ──
+  const sc = scoreRound({
+    probes, durationMs,
+    wordCompleted: allCorrect,
+    hadError,
+  });
+  const myScore = addScore(student.sessionId, sc);
+  updateChrome();
+
+  enqueue(recordExposure({
+    student, word: targetWord, wordId: wordObj.wordId, sentence,
+    phrase: wordObj.word, isPhrase: !!current.analysis?.isPhrase,
+    level, targetPattern: target.pattern, targetCategory: target.category,
+    targetWeight: target.weight, blanks, probes, durationMs,
+    exposureIndex: current.exposureIndex,
+    isRetry: item.kind === 'retry',
+    mode: ADVANCED ? 'dictation' : 'progressive',
+    points: sc.points,
+  }));
+
+  answeredAll = true;
+  saveState();
+
+  // ★ Progressive 的核心：答對一關 → 推進到下一關，不是整個詞跳過。
+  //   答錯不推進（會留在同一關重來）。
+  //
+  // ★★★ 這裡曾經漏掉 `item.kind === 'retry'`：
+  //   L1 答錯 → 進重測佇列 → 重測時答對了，但因為 kind 是 'retry'
+  //   而被整段條件擋掉 → levelProgress 永遠是 0 → 這個詞永遠不會拿到 L2。
+  //   （症狀：Results 裡某個詞只有 L1 資料，永遠停在 0%。）
+  //   正確做法：**只要這一關全對就推進**，不管它是首次、輪回還是重測。
+  if (ADVANCED) {
+    // ★ADV 考試模式：每個詞只做一次 → 不論答對答錯，這個詞都結束了。
+    //   記進 masteredWords 只是為了讓結算頁的「You finished N words」
+    //   與進度條有正確數字（答錯也算「做過了」，分數會如實反映在準確率）。
+    //   ★ 不能用 analysis.levels.length 判斷：那是 progressive 的關卡數，
+    //     advanced 只有一關，拿它比會永遠進不了 markMastered。
+    markMastered(state, wordObj.wordId);
+    saveState();
+  } else if (allCorrect) {
+    const doneNow = state.levelProgress.get(wordObj.wordId) || 0;
+    const reached = Math.max(doneNow, level);
+    state.levelProgress.set(wordObj.wordId, reached);
+
+    if (reached >= analysis.levels.length) {
+      // 所有關卡都過了 → 這個詞才真的結束
+      markMastered(state, wordObj.wordId);
+    } else {
+      // 還有 L2/L3… → 排進輪回佇列，等新詞發完一輪再回來
+      queueNextLevel(state, wordObj.wordId);
+    }
+    saveState();
+  } else {
+    // ★ 答錯時把這個詞的「最高完成關卡」記下來，不能讓 levelProgress
+    //   停在比實際低的值，否則重測答對時會重複做同一關。
+    state.levelProgress.set(
+      wordObj.wordId,
+      Math.max(state.levelProgress.get(wordObj.wordId) || 0, level - 1),
+    );
+    saveState();
+  }
+
+  await sleep(900);
+  render();
+}
+
+function skip() {
+  if (answeredAll) return;
+  answeredAll = true;
+
+  const { wordObj, level, item, blanks, targetWord } = current;
+  const probes = blanks.map(bi => ({
+    i: bi, expect: targetWord[bi], got: '', correct: false,
+    ms: Math.round(performance.now() - questionStart),
+    attemptNo: attempts[bi] ?? 1,
+    phonClass: current.target.category,
+    errorCode: 'skipped',
+  }));
+
+  for (const p of probes) {
+    recordAnswer(state, {
+      wordId: wordObj.wordId, level, probeIndex: p.i, correct: false,
+      expect: p.expect, got: '', phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
+    });
+  }
+
+  enqueue(recordExposure({
+    student, word: targetWord, wordId: wordObj.wordId, sentence: current.sentence ?? '',
+    phrase: wordObj.word, isPhrase: !!current.analysis?.isPhrase,
+    level, targetPattern: current.target.pattern, targetCategory: current.target.category,
+    targetWeight: current.target.weight, blanks, probes,
+    durationMs: Math.round(performance.now() - questionStart),
+    exposureIndex: current.exposureIndex, isRetry: item.kind === 'retry',
+    mode: ADVANCED ? 'dictation' : 'progressive', skipped: true,
+  }));
+
+  state.poolIndex = Math.max(state.poolIndex, state.order.indexOf(wordObj.wordId) + 1);
+  saveState();
+  render();
+}
+
+// ══════════════════════════════════════════════
+// Chrome
+// ══════════════════════════════════════════════
+function updateChrome() {
+  const my = loadMyScore(student.sessionId);
+  document.getElementById('pointsNum').textContent = my.points;
+  document.getElementById('progressFill').style.width = progress(state) + '%';
+  document.getElementById('progressLabel').textContent =
+    t('game.progress', { n: Math.min(state.poolIndex + 1, state.order.length), total: state.order.length });
+  document.getElementById('reviewLabel').textContent =
+    state.retryQueue.length ? `${state.retryQueue.length} ${t('game.pendingReview', { n: '' }).trim()}` : '';
+}
+
+// ══════════════════════════════════════════════
+// Result
+// ══════════════════════════════════════════════
+async function renderResult() {
+  const s = summarise(state);
+  const my = loadMyScore(student.sessionId);
+  playComplete();
+
+  // ★ Recap：把這一局練過的詞列出來，打勾的 = 完全掌握、◐ = 還沒全部過關。
+  //   小學課堂結束時回顧一下很有用，也讓老師一眼看到誰還卡在哪。
+  const recapItems = bank.map(w => {
+    const done = state.masteredWords.has(w.wordId);
+    const emoji = w.imageEmoji || emojiForWord(w.word, w.category);
+    return `<li class="recap-item ${done ? 'done' : 'partial'}">
+        <span class="recap-emoji">${emoji}</span>
+        <span class="recap-word">${escapeHtml(w.word)}</span>
+        <span class="recap-mark">${done ? '✓' : '◐'}</span>
+      </li>`;
+  }).join('');
+
+  STAGE.innerHTML = `
+    <div class="result-card">
+      <div class="result-emoji">🎉</div>
+      <h2>${escapeHtml(t('done.title'))}</h2>
+      <p class="sub">${escapeHtml(t('done.sub', { n: s.wordsMastered }))}</p>
+
+      <div class="result-points">⭐ ${my.points}</div>
+
+      <div class="result-stats">
+        <div class="stat-box"><div class="v">${(s.accuracy * 100).toFixed(0)}%</div><div class="k">${escapeHtml(t('done.accuracy'))}</div></div>
+        <div class="stat-box"><div class="v">${(s.avgProbeMs / 1000).toFixed(1)}s</div><div class="k">${escapeHtml(t('done.avgTime'))}</div></div>
+        <div class="stat-box"><div class="v">${s.wordsMastered}</div><div class="k">${escapeHtml(t('done.words'))}</div></div>
+        <div class="stat-box"><div class="v">${s.correct}/${s.probes}</div><div class="k">${escapeHtml(t('done.correct'))}</div></div>
+      </div>
+
+      <div class="recap">
+        <h3 class="recap-title">${escapeHtml(t('done.recap'))}</h3>
+        <ul class="recap-list">${recapItems}</ul>
+      </div>
+
+      <button class="btn-done" id="doneBtn" type="button" data-i18n="done.back">Back</button>
+    </div>
+  `;
+  applyI18n(STAGE);
+  // ★ 整局結束 → 大範圍撒彩帶慶祝
+  confettiCelebrate();
+  STAGE.querySelector('#doneBtn')?.addEventListener('click', () => { location.href = 'index.html'; });
+
+  localStorage.removeItem(`pcs.state.${student.sessionId}`);
+  await pushRankSession();
+}
+
+/**
+ * 把 session 寫進 Firestore，讓排名可以讀。
+ *
+ * ★ 2026-10-16（Bug 2）：寫**兩份**。
+ *   ① sessions/{sessionId} —— 完整摘要，rules 只給老師讀（研究資料）。
+ *   ② rankBoard/{sessionId} —— 只含「排行榜 UI 本來就看得見的欄位」，
+ *      rules 允許已登入者讀。
+ *   為什麼要分兩份：原本只寫 sessions，而它的 read 規則是 teacherOrList()，
+ *   學生（匿名登入）根本讀不到 → 即時排名永遠拉不到資料，
+ *   畫面恆顯示 "Waiting for other pupils…"。光修 className 不夠，
+ *   必須讓學生有可讀的來源；但完整研究資料不能因此外流，所以另開一個
+ *   只帶公開欄位的集合。
+ */
+async function pushRankSession() {
+  try {
+    const { initFirestore, currentAuthUid } = await import('./assets/js/firebase.js');
+    const { mod, db } = await initFirestore();
+    const { doc, setDoc, writeBatch } = mod;
+    const my = loadMyScore(student.sessionId);
+    const payload = buildRankSession({
+      student, score: my,
+      startedAt: state.startedAt ?? Date.now(),
+      endedAt: Date.now(),
+      state,
+    });
+    // ★ authUid：rules 的 isStudentWrite() 一定要比對這個欄位，
+    //   缺了就整份拒絕 —— 症狀是排名永遠是空的。
+    const authUid = currentAuthUid();
+    if (!authUid) { console.warn('[PCS] 尚未登入，略過 session 上傳'); return; }
+    const serverTs = Date.now();
+
+    const batch = writeBatch(db);
+    // ① 完整 session（老師專屬）
+    batch.set(doc(db, PCS_CONFIG.collections.sessions, student.sessionId), {
+      ...payload, authUid, serverTs,
+    });
+    // ② 公開排名板（學生可讀）—— 只帶排行榜上看得見的欄位
+    batch.set(doc(db, PCS_CONFIG.collections.rankBoard, student.sessionId), {
+      sessionId: payload.sessionId,
+      assignmentId: payload.assignmentId,
+      pin: payload.pin,
+      className: payload.className,
+      classNo: payload.classNo,
+      studentName: payload.studentName,
+      points: payload.points,
+      accuracy: payload.accuracy,
+      wordsMastered: payload.wordsMastered,
+      endedAt: payload.endedAt,
+      authUid, serverTs,
+    });
+    await batch.commit();
+  } catch (e) {
+    console.warn('[PCS] session 上傳失敗（不影響成績）', e?.message);
+  }
+}
+
+// ══════════════════════════════════════════════
+// Leaderboard
+// ══════════════════════════════════════════════
+const drawer = document.getElementById('rankDrawer');
+const drawerBg = document.getElementById('drawerBg');
+
+document.getElementById('rankToggle').addEventListener('click', () => openDrawer());
+document.getElementById('rankClose').addEventListener('click', () => closeDrawer());
+drawerBg.addEventListener('click', () => closeDrawer());
+// 刷新鈕：onSnapshot 之外的立即手動拉取（備用，網路抖動時可用）
+document.getElementById('rankRefresh').addEventListener('click', () => refreshRankingOnce());
+
+// ══ 實時訂閱狀態 ══
+let rankUnsub = null;      // onSnapshot 取消訂閱函式
+let rankStarting = false;  // 防止開啟期間重複訂閱
+
+function openDrawer() {
+  drawer.hidden = false; drawerBg.hidden = false;
+  startRanking();
+}
+
+function closeDrawer() {
+  drawer.hidden = true; drawerBg.hidden = true;
+  stopRanking();
+}
+
+// 開啟抽屜時訂閱：任何同學提交新成績，畫面會即時刷新
+async function startRanking() {
+  if (rankUnsub || rankStarting) return;   // 已在訂閱中
+  rankStarting = true;
+  const body = document.getElementById('rankBody');
+  const errEl = document.getElementById('rankErr');
+
+  // ★ 2026-10-16：沒有分組依據時說清楚，別讓學生以為是網路壞了。
+  //   正常流程 assignmentId 一定存在；會走到這裡代表是異常/舊資料。
+  if (!student.assignmentId && !student.className) {
+    body.innerHTML = `<div class="rank-loading">${escapeHtml(t('rank.noGroup'))}</div>`;
+    if (errEl) errEl.hidden = true;
+    rankStarting = false;
+    return;
+  }
+
+  body.innerHTML = `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`;
+  if (errEl) errEl.hidden = true;
+  const unsub = await subscribeClassRanking(student, (ranking) => {
+    if (errEl) errEl.hidden = true;
+    drawRanking(ranking);
+    applyI18n(document.getElementById('rankDrawer'));
+  }, (err) => {
+    // ★ 讀取失敗提示：保全則沒貼 / 網路抖動時，學生至少知道排名暫時看不到
+    if (errEl) {
+      errEl.hidden = false;
+      errEl.textContent = '⚠ ' + t('rank.readFail');
+    }
+    console.warn('[PCS] 排名即時訂閱失敗（不影響作答）', err?.message);
+  });
+  rankStarting = false;
+  // 訂閱初始化期間使用者已關掉抽屜 → 立即取消，避免殘留監聽
+  if (drawer.hidden) { try { unsub(); } catch { /* noop */ } return; }
+  rankUnsub = unsub;
+}
+
+// 關閉抽屜時取消訂閱，離開後不再監聽
+function stopRanking() {
+  if (rankUnsub && typeof rankUnsub === 'function') {
+    try { rankUnsub(); } catch { /* noop */ }
+  }
+  rankUnsub = null;
+  rankStarting = false;
+}
+
+// 手動刷新（備用）：立即拉一次最新資料，疊加在即時訂閱之上
+async function refreshRankingOnce() {
+  const ranking = await fetchClassRanking(student);
+  drawRanking(ranking);
+  applyI18n(document.getElementById('rankDrawer'));
+}
+
+function drawRanking(ranking) {
+  const body = document.getElementById('rankBody');
+  const my = loadMyScore(student.sessionId);
+
+  // 本機分數先併進去（Firestore 還沒同步上來時也能看到自己）
+  const me = ranking.find(s => String(s.classNo) === String(student.classNo) && s.name === student.studentName);
+  if (me) me.points = Math.max(me.points, my.points);
+  else if (my.points > 0) ranking.push({
+    classNo: student.classNo, name: student.studentName,
+    points: my.points, accuracy: 0, rank: 0,
+  });
+
+  const sorted = [...ranking].sort((a, b) => b.points - a.points);
+  sorted.forEach((s, i) => s.rank = i + 1);
+  const mine = myRank(sorted, student.classNo, student.studentName);
+
+  const top = sorted.slice(0, 10);
+
+  body.innerHTML = sorted.length === 0
+    ? `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`
+    : `
+      <ol class="rank-list">
+        ${top.map(s => {
+          const isMe = String(s.classNo) === String(student.classNo) && s.name === student.studentName;
+          const medal = s.rank === 1 ? '🥇' : s.rank === 2 ? '🥈' : s.rank === 3 ? '🥉' : s.rank;
+          return `<li class="${isMe ? 'me' : ''}">
+            <span class="rk">${medal}</span>
+            <span class="nm">${escapeHtml(s.name)}${isMe ? ' ★' : ''}</span>
+            <span class="sc">${s.classNo}</span>
+            <span class="acc">${s.accuracy ? Math.round(s.accuracy * 100) + '%' : '—'}</span>
+            <span class="pt">${s.points}</span>
+          </li>`;
+        }).join('')}
+      </ol>
+      ${mine ? `<div class="my-rank">${escapeHtml(t('rank.rank'))} <b>#${mine.rank}</b> / ${mine.total} · ${mine.points} ⭐</div>` : ''}
+    `;
+}
+
+// ══════════════════════════════════════════════
+// Helpers
+// ══════════════════════════════════════════════
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ★ 原本這裡有一份 emojiFor(cat) 的類別對照表。
+//   已搬到 assets/js/emoji.js 的 emojiForWord(word, category) ——
+//   因為「只靠類別猜」不足以區分同類別的不同詞（place 一律 🏠），
+//   而且同一份邏輯必須讓後台建立課程時共用，才不會兩邊不一致。
+
+// ── test hooks ──
+window.__PCS__ = {
+  get state() { return state; },
+  get current() { return current; },
+  answer: (map) => {
+    for (const [i, ch] of Object.entries(map)) {
+      const el = STAGE.querySelector(`.slot-input[data-index="${i}"]`);
+      if (el) { el.value = ch; el.dispatchEvent(new Event('input', { bubbles: true })); }
+    }
+    STAGE.querySelector('#submitBtn')?.click();
+  },
+  skip: () => STAGE.querySelector('#skipBtn')?.click(),
+  t,
+};
+
+window.addEventListener('beforeunload', () => stopSpeaking());
+
+// ★ 必須放在檔案最尾端 —— 呼叫時所有 const 都要已初始化，
+//   放在中間會讀到 TDZ（暫時性死區）的值而整個 module 失敗。
+// ★ NO_SESSION 時不呼叫 init()：上面已經 location.replace 回登入頁，
+//   再跑只會把內建詞庫載進來、在跳轉前開一局。
+if (!NO_SESSION) {
+  init().catch(e => {
+    console.error('[PCS] init failed', e);
+    const st = document.getElementById('stage');
+    if (st) st.innerHTML = `<div class="empty" style="padding:50px 20px">
+      <div class="big">⚠️</div>
+      <p>Loading failed</p>
+      <p style="font-size:12.5px;margin-top:10px;color:var(--ink-soft)">${escapeHtml(e.message)}</p>
+    </div>`;
+  });
+}
+</script>
+
+</body>
+</html>

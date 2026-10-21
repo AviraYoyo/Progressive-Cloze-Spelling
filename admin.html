@@ -1,0 +1,4127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#C2410C">
+
+<!-- ★ 快取破壞守衛：靜態站沒有 build step，瀏覽器會長期快取舊 .js。
+     改了程式碼但使用者跑舊檔，症狀會被誤判成「修正沒生效」。
+     版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
+<script>
+(function () {
+  var BUILD = '2026-10-16-r43';
+  var KEY = 'pcs.build';
+  try {
+    var seen = localStorage.getItem(KEY);
+    if (seen === BUILD) return;
+    localStorage.setItem(KEY, BUILD);
+    if (seen && seen !== BUILD) {
+      location.replace(location.pathname + location.search + '?_r=' + Date.now());
+    }
+  } catch (e) { /* private mode：略過 */ }
+})();
+</script>
+<title>Teacher Console · PCS</title>
+<!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-16-r43">
+<style>
+body { min-height: 100dvh; background: #F7F6F5; }
+
+/* ── Top ── */
+.top {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 14px;
+  padding: calc(12px + env(safe-area-inset-top)) 22px 12px;
+  background: var(--card); border-bottom: 1px solid var(--line);
+}
+.top h1 { margin: 0; font-size: 17px; font-weight: 800; }
+.top .who { display: flex; align-items: center; gap: 9px; margin-left: auto; font-size: 13px; color: var(--ink-soft); }
+
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: linear-gradient(135deg,#C2410C,#F97316);
+  color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 14px;
+}
+.avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+
+.btn-s {
+  height: 36px; padding: 0 14px; border-radius: 9px;
+  font-size: 13px; font-weight: 700;
+  border: 1.5px solid var(--line); background: var(--card);
+  transition: background .18s;
+}
+.btn-s:hover { background: var(--card-alt); }
+.btn-s.danger { color: #991B1B; border-color: #FCA5A5; }
+
+/* ── Tabs ── */
+.nav { display: flex; gap: 3px; padding: 12px 22px 0; overflow-x: auto; }
+.nav button {
+  height: 42px; padding: 0 18px; border-radius: 10px 10px 0 0;
+  font-size: 14px; font-weight: 700; color: var(--ink-soft);
+  white-space: nowrap; transition: background .18s, color .18s;
+}
+.nav button:hover { background: rgba(0,0,0,.03); }
+.nav button.active { background: var(--card); color: var(--orange-dark); box-shadow: 0 -2px 0 var(--orange) inset; }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 20px 22px 64px; }
+.page { display: none; }
+.page.active { display: block; }
+
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+  padding: 22px; margin-bottom: 18px;
+}
+.card > h2 { margin: 0 0 6px; font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.card > .desc { margin: 0 0 18px; font-size: 13.5px; color: var(--ink-soft); line-height: 1.6; }
+.card h3 { font-size: 14.5px; margin: 20px 0 8px; }
+
+.pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px;
+  background: var(--orange-soft); color: var(--orange-dark); border: 1px solid var(--orange-line); }
+.pill.green { background: var(--correct-dim); color: #3f6212; border-color: #BBE3A0; }
+.pill.grey { background: #F3F4F6; color: var(--ink-soft); border-color: var(--line); }
+
+.btn {
+  height: 44px; padding: 0 20px; border-radius: var(--r);
+  font-size: 14.5px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: transform .12s, opacity .18s;
+}
+.btn:active { transform: scale(.98); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn-primary { background: linear-gradient(135deg,#C2410C,#F97316); color: #fff; }
+.btn-sec { background: var(--card); border: 1.5px solid var(--line); color: var(--ink); }
+.btn-sec:hover { background: var(--card-alt); }
+
+/* ★ 提示訊息固定在畫面底部，不再把頁面捲回頂端。
+   老師按了 Copy link 之類的按鈕後，視線應該留在按鈕附近，
+   強制 scrollTo(0) 會讓畫面往上跳，很干擾。 */
+.msg {
+  position: fixed;
+  left: 50%;
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  transform: translate(-50%, 14px);
+  z-index: 120;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 13px 20px;
+  border-radius: 999px;
+  font-size: 13.5px; font-weight: 700; line-height: 1.5;
+  text-align: center;
+  box-shadow: 0 8px 26px rgba(15, 23, 42, .18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .22s ease, transform .22s cubic-bezier(.32,.72,0,1);
+}
+.msg.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+.msg.error   { background: #FEF2F2; color: #991B1B; border: 1.5px solid #FCA5A5; }
+.msg.success { background: #F0FDF4; color: #3f6212; border: 1.5px solid #86EFAC; }
+.msg.info    { background: #FFFFFF; color: #334155; border: 1.5px solid var(--line); }
+
+.spinner {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2.5px solid rgba(255,255,255,.4); border-top-color: #fff;
+  animation: spin .7s linear infinite;
+}
+.btn-sec .spinner { border-color: var(--line); border-top-color: var(--orange); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; padding: 10px 12px; background: var(--orange-soft);
+  color: var(--orange-dark); font-size: 12px; font-weight: 800; position: sticky; top: 0; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:hover td { background: #FFFBF7; }
+.tbl-wrap { overflow-x: auto; border-radius: var(--r); border: 1px solid var(--line); }
+.mono { font-family: var(--font-mono); font-size: 13px; }
+
+.phrase-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(276px, 1fr)); gap: 14px; }
+.ph { border: 1px solid var(--line); border-radius: var(--r); padding: 15px; background: var(--card);
+  transition: border-color .18s, box-shadow .18s; }
+.ph:hover { border-color: var(--orange-line); box-shadow: var(--shadow-sm); }
+.ph-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.ph-emoji { font-size: 26px; }
+.ph-word { font-size: 16.5px; font-weight: 800; }
+.ph-sent { font-size: 12.5px; color: var(--ink-soft); line-height: 1.55;
+  padding: 8px 10px; background: var(--card-alt); border-radius: 8px; margin-bottom: 10px; }
+.ph-levels { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.lv-chip { font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  padding: 4px 9px; border-radius: 7px; background: var(--orange-soft);
+  color: var(--orange-dark); border: 1px solid var(--orange-line); }
+.ph-note { font-size: 11.5px; color: var(--orange-dark); background: #FFFBEB; padding: 7px 10px; border-radius: 7px; line-height: 1.5; }
+.ph-note:empty { display: none; }
+.checkbox { width: 19px; height: 19px; accent-color: var(--orange); cursor: pointer; }
+
+.field { margin-bottom: 15px; }
+.field label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 700; color: var(--ink-mid); }
+.field input {
+  width: 100%; height: 48px; padding: 0 14px;
+  border: 2px solid var(--line); border-radius: var(--r); font-size: 15.5px;
+}
+.field input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 4px var(--orange-soft); }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; }
+.kpi { padding: 17px 15px; border-radius: var(--r);
+  background: var(--orange-soft); border: 1.5px solid var(--orange-line); }
+.kpi .v { font-size: 28px; font-weight: 900; color: var(--orange-dark); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kpi .k { font-size: 12px; color: var(--orange-dark); opacity: .82; margin-top: 3px; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.filters select, .filters input {
+  height: 40px; padding: 0 12px;
+  border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); font-size: 13.5px;
+}
+.filters select:focus, .filters input:focus { outline: none; border-color: var(--orange); }
+
+.empty { text-align: center; padding: 44px 20px; color: var(--ink-mute); }
+.empty .big { font-size: 42px; margin-bottom: 12px; }
+
+/* ══ 展開的詞彙清單 ══ */
+.asg-item { flex-wrap: wrap; }
+
+.ai-words {
+  flex-basis: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--card-alt);
+  border: 1px solid var(--line);
+}
+.ai-words[hidden] { display: none !important; }
+
+.aiw-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.aiw-row:last-child { border-bottom: none; }
+
+.aiw-word {
+  flex-shrink: 0;
+  min-width: 140px;
+  font-size: 13.5px; font-weight: 800; color: var(--ink);
+}
+/* ══ 增減單詞 ══ */
+.aiw-row { align-items: center; min-height: 40px; }
+.aiw-row > * { align-self: center; }
+
+.aiw-word {
+  flex-shrink: 0;
+  width: 128px;
+  max-width: 128px;
+  font-size: 13.5px; font-weight: 800; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ★ 編輯模式下單詞也可改名 */
+.aiw-wordedit {
+  display: none;
+  width: 128px;
+  height: 36px;
+  padding: 0 11px;
+  border: 1.5px dashed var(--orange-line);
+  border-radius: 8px;
+  background: #FFFBF7;
+  color: var(--ink);
+  font-size: 13px; font-weight: 700;
+  flex-shrink: 0;
+}
+.aiw-row.editing .aiw-del   { display: grid; }
+.aiw-row.editing .aiw-word  { display: none; }
+.aiw-row.editing .aiw-wordedit { display: block; }
+.aiw-wordedit:focus {
+  outline: none; border-style: solid;
+  border-color: var(--orange); background: #fff;
+  box-shadow: 0 0 0 3px var(--orange-soft);
+}
+
+/* 刪除鈕 */
+.aiw-del {
+  flex-shrink: 0;
+  width: 36px; height: 36px;      /* ★ 與輸入框同高 → 整列完全對齊 */
+  display: none;                 /* 編輯模式才出現 */
+  place-items: center;
+  border: 1.5px solid #FCA5A5;
+  border-radius: 8px;
+  background: #FEF2F2;
+  color: #991B1B;
+  font-size: 18px; font-weight: 800; line-height: 1;
+  cursor: pointer;
+  transition: background .15s, transform .12s;
+}
+.aiw-del:hover:not(:disabled) { background: #FEE2E2; transform: scale(1.06); }
+.aiw-del:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 新增一列 */
+.aiw-new {
+  border-top: 1px dashed var(--line);
+  padding-top: 10px; margin-top: 4px;
+}
+.aiw-plus { color: var(--orange); font-size: 17px; text-align: center; }
+.aiw-add {
+  flex-shrink: 0;
+  height: 36px; padding: 0 16px;
+  border: none; border-radius: 8px;
+  background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+  color: #fff; font-size: 13px; font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(249,115,22,.26);
+  transition: transform .12s, filter .15s;
+}
+.aiw-add:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
+.aiw-add:active:not(:disabled) { transform: translateY(0); }
+.aiw-add:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ★ 可編輯的例句欄位 —— 靠右、撐滿剩餘空間 */
+.aiw-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;          /* ★ 原本鎖 420px，右邊留一大片空白 */
+  height: 36px;
+  padding: 0 11px;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  transition: border-color .16s, box-shadow .16s, background .16s;
+  appearance: none; -webkit-appearance: none;
+}
+.aiw-input:hover:not(:disabled) { border-color: var(--orange-line); }
+.aiw-input:focus {
+  outline: none;
+  border-color: var(--orange);
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--orange-soft);
+}
+/* 空的例句欄位：用淺橘色的 placeholder 提示，但不刺眼 */
+.aiw-input.missing::placeholder { color: #D8C3B0; font-style: italic; }
+.aiw-input:disabled {
+  background: var(--card-alt);
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+
+/* 「已儲存」短暫提示 */
+.aiw-saved {
+  margin: 8px 0 0;
+  font-size: 12px; font-weight: 700; color: #3f6212;
+}
+.aiw-saved.bad { color: #991B1B; }
+.aiw-saved[hidden] { display: none !important; }
+
+/* ★ Save 按鈕：填色、醒目 —— 這是收合（確認儲存）的動作 */
+.btn-s.save {
+  background: linear-gradient(135deg, #16A34A 0%, #22C55E 100%);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 3px 10px rgba(22, 163, 74, .3);
+}
+.btn-s.save:hover {
+  background: linear-gradient(135deg, #15803D 0%, #16A34A 100%);
+  transform: translateY(-1px);
+}
+.btn-s.save:active { transform: translateY(0); }
+
+@media (max-width: 640px) {
+  .wrap { padding: 16px 14px 48px; }
+  .card { padding: 17px 15px; }
+  .top { padding-left: 15px; padding-right: 15px; }
+  .nav { padding-left: 15px; }
+}
+
+/* ══ 認證閘門 ══
+   ⚠ 這裡原本多了一個 style 開標籤，害得下面這條 [hidden] 規則被 CSS
+   解析器當成「無效選擇器」整條丟掉。結果所有帶 hidden 屬性、又剛好有
+   自己的 display 宣告的元素（.imgm-backdrop / .imgm-busy …）在載入時
+   全部「現形」——圖片彈窗一進控制台就跳出來，就是這個原因。
+   同一個 style 區塊裡不要再出現第二次開標籤。 */
+[hidden] { display: none !important; }
+
+.auth-gate {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center;
+  background: #F7F8FC;
+}
+.auth-gate-box { text-align: center; color: #5A6478; }
+.auth-gate-box p { margin-top: 16px; font-size: 14.5px; font-weight: 600; }
+
+.spinner {
+  width: 38px; height: 38px; margin: 0 auto;
+  border: 3.5px solid #E3E7F0;
+  border-top-color: #F97316;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.gate-err {
+  max-width: 460px; margin: 40px auto; padding: 26px;
+  background: #fff; border: 1.5px solid #F3D9CB; border-radius: 14px;
+  text-align: center; color: #5A6478; font-size: 14px; line-height: 1.7;
+}
+.gate-err b { color: #C2410C; display: block; margin-bottom: 8px; font-size: 15.5px; }
+.gate-err a { color: #F97316; font-weight: 700; }
+
+/* ══ Assignments ══ */
+.asg-form { margin-top: 16px; }
+/* ★ 2026-10-16：加了 Class 欄位 → 三列（名稱 / PIN / 班別） */
+.asg-row { display: grid; grid-template-columns: 1fr 130px 110px; gap: 12px; }
+.asg-row .field { margin-bottom: 14px; }
+.asg-pin label small, .field label small { font-weight: 500; color: var(--ink-mute); }
+
+.asg-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.asg-actions .grow { flex: 1; }
+
+/* ══ 詞彙輸入框 ══ */
+.asg-form textarea,
+.field textarea {
+  width: 100%;
+  padding: 14px 16px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--card-alt);
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14.5px;
+  line-height: 1.85;
+  resize: vertical;
+  min-height: 120px;
+  transition: border-color .18s, box-shadow .18s, background .18s;
+  appearance: none; -webkit-appearance: none;
+}
+.asg-form textarea:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: var(--orange);
+  background: var(--card);
+  box-shadow: 0 0 0 4px var(--orange-soft);
+}
+.asg-form textarea::placeholder,
+.aiw-input::placeholder,
+.aiw-wordedit::placeholder { color: #BFC6D4; }   /* ★ 更淺，不要搶視覺 */
+
+/* ★ 提示文字：放在輸入框「上面」，第一行正常、第二行弱化 */
+.asg-help {
+  margin: 0 0 8px;
+  font-size: 12.5px; line-height: 1.75; color: var(--ink-soft);
+}
+.asg-help-main { color: var(--ink-mid); font-weight: 600; }
+.asg-help-sub  { color: var(--ink-mute); font-weight: 500; }
+.asg-help code {
+  font-family: ui-monospace, monospace;
+  background: var(--card-alt);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+  color: var(--orange-dark);
+}
+
+.asg-count {
+  margin: 10px 0 0;
+  font-size: 12.5px; font-weight: 700; color: var(--orange-dark);
+}
+.asg-count.warn { color: var(--ink-mute); font-weight: 600; }
+
+/* ══ 未連結的課程（舊資料 / 別的帳號）══ */
+.legacy-box {
+  margin-top: 6px;
+  padding-top: 18px;
+  border-top: 2px dashed var(--line);
+}
+.legacy-box[hidden] { display: none !important; }
+
+/* ══ 每個 assignment 一包（Results）══ */
+.per-asg { margin-bottom:18px; }
+
+.per-asg-card {
+  border: 1.5px solid var(--line);
+  border-radius: var(--r);
+  background: var(--card);
+  margin-bottom:12px;
+  overflow: hidden;
+}
+.per-asg-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 13px 16px;
+  background: var(--card-alt);
+  border-bottom: 1px solid var(--line);
+}
+.per-asg-pin {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 46px; height: 30px; padding: 0 9px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+  color: #fff; font-family: var(--font-mono); font-weight: 800; font-size: 14px;
+}
+.per-asg-title { font-size: 14.5px; font-weight: 800; color: var(--ink); }
+.per-asg-sub   { font-size: 12.5px; color: var(--ink-soft); }
+.per-asg-kpis  { display: flex; gap: 16px; flex-wrap: wrap; margin-left: auto; }
+.per-asg-kpi   { font-size: 12px; color: var(--ink-soft); }
+.per-asg-kpi b { display: block; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.per-asg-body  { padding: 14px 16px; display: none; }
+.per-asg-card.open .per-asg-body { display: block; }
+.per-asg-caret {
+  font-size: 13px; color: var(--ink-mute);
+  transition: transform .15s; flex-shrink: 0;
+}
+.per-asg-card.open .per-asg-caret { transform: rotate(90deg); }
+.per-asg-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;
+padding-top: 12px; border-top: 1px dashed var(--line); }
+
+/* ══ Advanced mode 開關 ══
+   用自製 checkbox（<span class="adv-box">）而不是原生的，
+   否則在深色/淺色底上對齊與配色不好控制。 */
+.adv-toggle {
+  display: flex; align-items: center; gap: 10px;
+  margin: 4px 0 18px; padding: 10px 14px;
+  border: 1.5px solid var(--line); border-radius: 10px;
+  background: var(--card-alt); cursor: pointer;
+  transition: border-color .16s, background .16s;
+}
+.adv-toggle:hover { border-color: var(--orange-line); background: #FFFBF7; }
+.adv-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.adv-box {
+  width: 18px; height: 18px; flex-shrink: 0;
+  border: 2px solid var(--line); border-radius: 5px;
+  background: var(--card); transition: all .14s;
+  display: flex; align-items: center; justify-content: center;
+}
+.adv-box::after {
+  content: '✓'; font-size: 12px; font-weight: 900; color: #fff;
+  opacity: 0; transform: scale(.5); transition: all .14s;
+}
+.adv-toggle input:checked + .adv-box {
+  background: var(--correct); border-color: var(--correct);
+}
+.adv-toggle input:checked + .adv-box::after { opacity: 1; transform: scale(1); }
+.adv-toggle input:focus-visible + .adv-box { box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
+/* ★ 只有一行文字，不需要 column 佈局 */
+.adv-text { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+
+/* ══ 每個詞的圖片欄位（拖放 / Ctrl+V 貼上 / 點選檔案）══ */
+.aiw-img {
+  position: relative;
+  width: 44px; height: 44px; flex-shrink: 0;
+  border: 1.5px dashed var(--line); border-radius: 9px;
+  background: var(--card);
+  display: grid; place-items: center;
+  overflow: hidden; cursor: pointer;
+  transition: border-color .14s, background .14s, transform .1s;
+}
+.aiw-img:hover { border-color: var(--orange-line); background: #FFFBF7; }
+.aiw-img.has { border-style: solid; border-color: var(--line); cursor: default; }
+.aiw-img.drag-over {
+  border-color: var(--orange); border-style: solid;
+  background: var(--orange-soft); transform: scale(1.06);
+}
+.aiw-img[data-disabled] { opacity: .5; cursor: not-allowed; }
+.aiw-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.aiw-imgi { font-size: 17px; opacity: .5; line-height: 1; }
+.aiw-imgx {
+  position: absolute; top: -1px; right: -1px;
+  width: 17px; height: 17px; padding: 0;
+  border: none; border-radius: 0 8px 0 7px;
+  background: rgba(0,0,0,.55); color: #fff;
+  font-size: 12px; line-height: 17px; cursor: pointer;
+}
+.aiw-imgx:hover { background: var(--wrong); }
+.aiw-imghint {
+  margin: 2px 0 8px; font-size: 12px; color: var(--ink-mute);
+}
+.aiw-imghint kbd {
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 1px 5px; border: 1px solid var(--line);
+  border-bottom-width: 2px; border-radius: 4px;
+  background: var(--card);
+}
+
+/* ══════════════════════════════════════════════
+   ★ 圖片選擇彈窗
+   ──────────────────────────────────────────────
+   為什麼要做成彈窗（而不是「點一下就跳系統檔案選單」）：
+   老師最常用的來源是「從網頁/簡報複製圖片」，那條路上的操作是 ⌘V，
+   但檔案選單裡沒有貼上這個選項 —— 老師根本不知道可以貼。
+   彈窗把三個入口（貼上・拖放・選檔）都寫在同一個方框上，
+   而且方框本身聚焦著，⌘V 一定接得到。
+   ══════════════════════════════════════════════ */
+.imgm-backdrop {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(28,22,16,.44);
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+  animation: imgm-fade .13s ease-out;
+}
+/* 保險：即使全域 [hidden] 規則又被弄壞，彈窗也絕不會自己跑出來 */
+.imgm-backdrop[hidden] { display: none !important; }
+@keyframes imgm-fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes imgm-pop  { from { opacity: 0; transform: translateY(8px) scale(.98) }
+                       to   { opacity: 1; transform: none } }
+.imgm-card {
+  width: 100%; max-width: 430px;
+  background: var(--card); border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(28,22,16,.3);
+  padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  animation: imgm-pop .16s cubic-bezier(.2,.8,.3,1);
+}
+.imgm-head { display: flex; align-items: baseline; gap: 8px; }
+.imgm-title { margin: 0; font-size: 15px; color: var(--ink); }
+.imgm-word {
+  font-family: var(--font-mono); font-size: 13.5px; font-weight: 700;
+  color: var(--orange-dark); background: var(--orange-soft);
+  border: 1px solid var(--orange-line); border-radius: 6px; padding: 2px 7px;
+}
+.imgm-sub { margin: -4px 0 0; font-size: 12.5px; color: var(--ink-mute); line-height: 1.6; }
+.imgm-sub kbd {
+  font-family: var(--font-mono); font-size: 11px; padding: 1px 5px;
+  border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 4px; background: var(--card-alt);
+}
+
+/* 投放區：預設虛線空框，有圖時變成實線預覽 */
+.imgm-drop {
+  position: relative;
+  min-height: 196px;
+  border: 2px dashed var(--line); border-radius: 12px;
+  background: var(--card-alt);
+  display: grid; place-items: center;
+  cursor: pointer; text-align: center;
+  transition: border-color .14s, background .14s;
+}
+.imgm-drop:hover, .imgm-drop:focus-visible { border-color: var(--orange-line); outline: none; }
+.imgm-drop:focus-visible { box-shadow: 0 0 0 4px var(--orange-soft); }
+.imgm-drop.is-over {
+  border-color: var(--orange); background: var(--orange-soft);
+  border-style: solid;
+}
+.imgm-drop.has-img {
+  border-style: solid; border-color: var(--line);
+  background: #fff; padding: 10px;
+}
+.imgm-empty { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.imgm-empty .ico { font-size: 34px; opacity: .45; line-height: 1; }
+.imgm-empty .l1 { font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+.imgm-empty .l2 { font-size: 12px; color: var(--ink-mute); }
+.imgm-fig { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.imgm-fig img {
+  display: block; max-width: 100%; max-height: 210px;
+  border-radius: 8px;
+}
+.imgm-meta { font-size: 11.5px; color: var(--ink-mute); font-variant-numeric: tabular-nums; }
+.imgm-meta b { color: var(--correct); font-weight: 800; }
+.imgm-busy { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-soft); }
+.imgm-busy .dot {
+  width: 15px; height: 15px; border-radius: 50%;
+  border: 2.5px solid var(--orange-line); border-top-color: var(--orange);
+  animation: spin .7s linear infinite;
+}
+.imgm-foot { display: flex; align-items: center; gap: 8px; }
+.imgm-foot .grow { flex: 1; }
+.btn-s.primary {
+  background: linear-gradient(135deg,#C2410C,#F97316); color: #fff;
+  border-color: transparent;
+}
+.btn-s.primary:hover { background: linear-gradient(135deg,#9A3412,#EA580C); }
+.btn-s:disabled { opacity: .45; cursor: default; }
+.btn-s:disabled:hover { background: var(--card); }
+.btn-s.primary:disabled:hover { background: linear-gradient(135deg,#C2410C,#F97316); }
+
+/* 拖曳經過時蓋一層提示（.imgm-hover 平常不佔位） */
+.imgm-drop .imgm-hover { display: none; }
+.imgm-drop.is-over .imgm-empty,
+.imgm-drop.is-over .imgm-fig { opacity: .3; }
+.imgm-drop.is-over .imgm-hover {
+  display: grid; place-items: center;
+  position: absolute; inset: 0;
+  font-size: 13.5px; font-weight: 800; color: var(--orange-dark);
+  pointer-events: none;
+}
+
+/* ══ 大 PIN 投影彈窗（Show PIN 時跳出，可關閉；樣式沿用 .imgm-*）══ */
+.pinbig-backdrop {
+  position: fixed; inset: 0; z-index: 320;
+  background: rgba(28,22,16,.46);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  animation: imgm-fade .13s ease-out;
+}
+.pinbig-backdrop[hidden] { display: none !important; }
+.pinbig-card {
+  width: 100%; max-width: 860px;
+  background: var(--card); border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(28,22,16,.3);
+  padding: 22px 24px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+  animation: imgm-pop .16s cubic-bezier(.2,.8,.3,1);
+}
+.pinbig-head { display: flex; align-items: center; gap: 10px; }
+.pinbig-title { margin: 0; font-size: 15px; color: var(--ink); flex: 1; }
+.pinbig-x {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+  border: 1px solid var(--line); background: var(--card);
+  font-size: 20px; line-height: 1; color: var(--ink-mute);
+  cursor: pointer; transition: background .12s, color .12s;
+}
+.pinbig-x:hover { background: var(--card-alt); color: var(--ink); }
+.pinbig-sub { margin: -2px 0 0; font-size: 12.5px; color: var(--ink-mute); line-height: 1.6; }
+/* ★ 投影用大數字：隨視窗縮放，最大 200px，全班都看得到；
+   nowrap 確保 4 位 PIN 永不換行。 */
+.pinbig-num {
+  align-self: center;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0 2px;
+  padding: 16px clamp(24px, 5vw, 56px);
+  border-radius: var(--r-lg);
+  background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+  color: #fff;
+  font-family: var(--font-mono, monospace);
+  font-size: 80px;                          /* 舊瀏覽器 fallback */
+  font-size: clamp(64px, 15vw, 210px);     /* 隨視窗縮放，最大 210px（課堂投影用） */
+  font-weight: 800;
+  letter-spacing: .04em;
+  line-height: 1.04;
+  white-space: nowrap;                      /* ★ 4 位 PIN 永不換行 */
+  font-variant-numeric: tabular-nums;       /* 數字等寬，四位對齊 */
+  box-shadow: 0 8px 26px rgba(249,115,22,.30);
+}
+.pinbig-foot { display: flex; align-items: center; gap: 8px; }
+.pinbig-foot .grow { flex: 1; }
+
+/* ══ 可收起的區塊（Errors by sound pattern / Student results）══
+   預設全部收起 —— 這兩張表很長，鋪在畫面上會把其他內容推很遠。
+   老師點標題才展開。與 .per-asg-card 用同一套 caret 語言。 */
+.card.collapsible .collapse-head {
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; user-select: none; margin: 0;
+}
+.card.collapsible .collapse-head .caret {
+  font-size: 13px; color: var(--ink-mute);
+  transition: transform .15s; flex-shrink: 0;
+}
+.card.collapsible.open .collapse-head .caret { transform: rotate(90deg); }
+.card.collapsible .collapse-body { display: none; padding-top: 12px; }
+.card.collapsible.open .collapse-body { display: block; }
+.card.collapsible .collapse-head:hover { color: var(--ink); }
+
+.per-asg-note {
+  font-size: 12px; color: var(--ink-soft); background: var(--card-alt);
+  border: 1px dashed var(--line); border-radius: 8px; padding: 9px 11px; margin: 0 0 12px;
+}
+
+.sub-h { font-size: 12.5px; font-weight: 800; color: var(--ink-mid);
+margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
+.sub-h:first-child { margin-top: 0; }
+
+/* Create assignment 按鈕：與 .btn-s 同一設計語言 ══ */
+.asg-submit {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 18px;
+  padding: 0 26px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+  color: #fff;
+  font-size: 15px; font-weight: 800; letter-spacing: .01em;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(249, 115, 22, .28);
+  transition: transform .14s cubic-bezier(.32,.72,0,1), box-shadow .14s, filter .14s;
+}
+.asg-submit:hover:not(:disabled) {
+  transform: translateY(-1.5px);
+  box-shadow: 0 7px 20px rgba(249, 115, 22, .34);
+  filter: brightness(1.04);
+}
+.asg-submit:active:not(:disabled) {
+  transform: translateY(0) scale(.988);
+  box-shadow: 0 2px 8px rgba(249, 115, 22, .26);
+}
+.asg-submit:disabled {
+  opacity: .72;
+  cursor: progress;
+  filter: grayscale(.16);
+}
+.asg-submit:focus-visible {
+  outline: 3px solid var(--orange-soft);
+  outline-offset: 2px;
+}
+
+.dispatch { display: flex; gap: 24px; align-items: flex-start; margin-top: 14px; }
+.dispatch-pin {
+  flex-shrink: 0;
+  padding: 22px 38px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+  color: #fff;
+  text-align: center;
+  box-shadow: 0 8px 26px rgba(249,115,22,.30);
+}
+.dp-label { display: block; font-size: 13px; font-weight: 800; opacity: .9;
+            letter-spacing: .22em; text-transform: uppercase; }
+.dispatch-pin strong {
+  display: block;
+  font-family: var(--font-mono, monospace);
+  font-size: 40px; font-weight: 800; letter-spacing: .1em; line-height: 1.1;
+}
+
+.dispatch-info { flex: 1; min-width: 0; }
+.dp-title { margin: 0 0 4px; font-size: 15px; font-weight: 800; color: var(--ink); }
+.dp-words { margin: 0 0 12px; font-size: 12.5px; color: var(--ink-soft); line-height: 1.6; }
+.dp-url { display: flex; gap: 8px; }
+.dp-url input {
+  flex: 1; height: 38px; padding: 0 12px;
+  border: 1.5px solid var(--line); border-radius: var(--r);
+  background: var(--card-alt); color: var(--ink-soft);
+  font-family: var(--font-mono, monospace); font-size: 12.5px;
+}
+.dp-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-soft); line-height: 1.6; }
+.dp-hint span { font-weight: 700; color: var(--orange-dark); }
+
+/* ── 課程列表 ── */
+.asg-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.asg-item {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r);
+  background: var(--card);
+}
+.ai-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
+.ai-pin {
+  font-family: var(--font-mono, monospace);
+  font-size: 17px; font-weight: 800; letter-spacing: .06em;
+  color: var(--orange-dark);
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange-line);
+  padding: 5px 11px; border-radius: 8px;
+  flex-shrink: 0;
+}
+.ai-title { margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+.ai-meta { margin: 2px 0 0; font-size: 12px; color: var(--ink-soft); }
+
+/* ★ 出題模式標籤 —— 老師在「Your assignments」一眼看出這份課程是哪一種。
+   whole = 整詞自行填寫（Whole word spelling，assignment.advanced === true） */
+.ai-mode {
+  display: inline-block; margin-left: 8px; vertical-align: middle;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 800; letter-spacing: .01em;
+  border: 1px solid var(--line); background: var(--card-alt); color: var(--ink-soft);
+  white-space: nowrap;
+}
+.ai-mode.whole {
+  background: var(--orange-soft); border-color: var(--orange-line);
+  color: var(--orange-dark);
+}
+.ai-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  /* ★ 2026-10-16：三欄（名稱 / PIN / 班別）在窄屏改為兩列，
+     名稱獨佔一行、PIN 與班別並排 —— 原來只有兩欄所以寫 1fr 1fr。 */
+  .asg-row { grid-template-columns: 1fr 1fr; }
+  .asg-row .field:first-child { grid-column: 1 / -1; }
+  .dispatch { flex-direction: column; align-items: stretch; }
+  .dispatch-pin { align-self: flex-start; }
+}
+
+</style>
+</head>
+<body>
+
+<!-- ══ 認證閘門：驗證完成前顯示載入畫面，驗證失敗會整頁跳走 ══ -->
+<div id="authGate" class="auth-gate" style="display:grid">
+  <div class="auth-gate-box">
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Checking your sign-in…</p>
+  </div>
+</div>
+
+<div id="appShell" style="display:none">
+<header class="top">
+  <h1>PCS Teacher Console</h1>
+  <div class="who">
+    <span id="whoName">—</span>
+    <span class="avatar" id="avatar"></span>
+    <button class="btn-s" id="btnAccount">Account</button>
+    <button class="btn-s danger" id="btnSignout">Sign out</button>
+  </div>
+</header>
+
+<nav class="nav">
+  <button data-page="assign" class="active">Assignments</button>
+  <button data-page="words">Word bank</button>
+  <button data-page="analysis">Results</button>
+  <button data-page="account">Account</button>
+  <button data-page="guide">Setup guide</button>
+</nav>
+
+<div class="msg" id="msg"></div>
+
+<!-- ★ 一次性提醒：rules 改過必須重新 Publish -->
+<div class="rules-banner" id="rulesBanner" hidden style="margin:0 0 16px;padding:13px 15px;border-radius:12px;background:#FFFBEB;border:1.5px solid #FDE68A;color:#92400E;font-size:13px;line-height:1.7;position:relative">
+  <button type="button" onclick="this.parentElement.hidden=true"
+          style="position:absolute;top:8px;right:10px;border:none;background:none;font-size:17px;cursor:pointer;color:#92400E;line-height:1">×</button>
+</div>
+
+<div class="wrap">
+
+  <!-- ═══ Word bank ═══ -->
+  <section class="page active" id="page-assign">
+
+  <div class="card">
+    <h2>New assignment <span class="pill" id="asgCount">0 assignments</span></h2>
+    <p class="hint">Create an assignment and PCS gives you a 4-digit PIN.
+       Students enter that PIN on the student page to join — just like Kahoot.</p>
+
+    <div class="asg-form">
+      <div class="asg-row">
+        <div class="field">
+          <label for="asgTitle">Assignment name</label>
+          <input id="asgTitle" type="text" maxlength="40" placeholder="Unit 1 Places">
+        </div>
+        <div class="field asg-pin">
+          <label for="asgPin">PIN <small>(optional)</small></label>
+          <input id="asgPin" type="text" inputmode="numeric" maxlength="4" placeholder="auto">
+        </div>
+        <!-- ★ 2026-10-16 新增：班別。
+             以前建課完全沒寫 className，導致 assignment.className 恆為 ''，
+             學生端 ranking 的查詢 `where('className','==','')` 永遠匹配不到
+             → 班級排名對所有人都是空的（Bug 2）。
+             現在讓老師填一下；排名本身已改為優先按 PIN 分組（見 leaderboard.js），
+             這個欄位主要供後台 Results 的「按班別篩選」使用。 -->
+        <div class="field asg-class">
+          <label for="asgClass">Class <small>(optional)</small></label>
+          <input id="asgClass" type="text" maxlength="12" placeholder="e.g. P4A" autocomplete="off">
+        </div>
+      </div>
+
+      <!-- ★★ Advanced mode：預設關閉。老師勾選後，這份 assignment 會變成
+           「整個詞/詞組自行填寫」的考試模式：
+             · 例句照樣顯示（給語境）
+             · 圖片照樣顯示
+             · 單詞與詞組**全部**挖空成下劃線
+             · 每個詞只出現一次（沒有 L1/L2/L3 階梯）
+           這是給「階段測驗／小考」用的，不是給日常練習用的。 -->
+      <!-- ★★ Advanced mode：預設關閉。勾選後這份 assignment 變成
+           「整個詞/詞組自行填寫」的考試模式：
+             · 例句與圖片照樣顯示
+             · 單詞與詞組**全部**挖空成下劃線（冠詞不挖）
+             · 每個詞只出現一次（沒有 L1/L2/L3 階梯、不重測）
+           ★ 畫面上只留一句 "Spell the whole word" —— 其他細節放在
+             這段註解裡。老師看得懂標題就夠了，說太多反而不知道該不該勾。 -->
+      <label class="adv-toggle" for="asgAdvanced">
+        <input type="checkbox" id="asgAdvanced">
+        <span class="adv-box" aria-hidden="true"></span>
+        <span class="adv-text">Spell the whole word</span>
+      </label>
+
+      <div class="field">
+        <label for="asgCustom">Your words <small>(one per line)</small></label>
+        <p class="asg-help">
+          <span class="asg-help-sub">Format: word or word, example sentence</span>
+        </p>
+        <textarea id="asgCustom" rows="8" spellcheck="false"
+          placeholder="a cake shop, We go to the cake shop."></textarea>
+        <p class="asg-count" id="asgLineCount">0 words</p>
+      </div>
+
+      <button class="btn-primary asg-submit" id="asgCreate">
+        <span>Create assignment</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="card" id="asgResultCard" hidden>
+    <h2>Send this to your class</h2>
+    <div class="dispatch">
+      <div class="dispatch-pin">
+        <span class="dp-label">PIN</span>
+        <strong id="dpPin">0000</strong>
+      </div>
+      <div class="dispatch-info">
+        <p class="dp-title" id="dpTitle"></p>
+        <p class="dp-words" id="dpWords"></p>
+        <div class="dp-url">
+          <input id="dpUrl" type="text" readonly>
+          <button class="btn-s" id="dpCopy">Copy link</button>
+        </div>
+        <p class="dp-hint">Project this page on the board. Students type the PIN at
+           <span id="dpSite"></span></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Your assignments</h2>
+    <div id="asgList" class="asg-list"></div>
+
+    <!-- ★ 未連結的課程：舊資料 teacherId 是 null，或由別的帳號建立。
+         放在獨立區塊而不是混在「Your assignments」裡，
+         否則換帳號後會誤以為登入沒生效。 -->
+    <div id="legacyBox" class="legacy-box" hidden>
+      <h3 style="margin:22px 0 4px;font-size:14.5px;color:var(--ink-mid)">
+        Assignments from an earlier account <span class="pill grey" id="legacyCount">0</span>
+      </h3>
+      <p class="hint" style="margin:0 0 12px;font-size:12.5px">
+        These were created before PCS started tagging assignments with an owner, or from a
+        different sign-in. Claim one to move it into Your assignments.
+      </p>
+      <div id="legacyList" class="asg-list"></div>
+    </div>
+  </div>
+
+</section>
+
+<section class="page" id="page-words">
+    <div class="card">
+      <h2>Word bank <span class="pill" id="seedCount"></span></h2>
+      <p class="desc">
+        Write phrases into Firestore so the student app can read them.
+        Tick the ones you want, then press Write to Firestore.
+      </p>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="btn btn-sec" id="btnSelAll">Select all</button>
+        <button class="btn btn-sec" id="btnSelNone">Clear</button>
+        <button class="btn btn-primary" id="btnSeed">Write to Firestore</button>
+        <span style="flex:1"></span>
+        <span class="pill grey" id="selCount">0 selected</span>
+      </div>
+
+      <div style="border-top:1px solid var(--line);padding-top:18px;margin-bottom:14px">
+        <label style="display:block;font-size:13px;font-weight:700;margin-bottom:8px">Custom phrases (one per line)</label>
+        <textarea id="customPhrases" rows="4" style="width:100%;padding:12px;border:2px solid var(--line);border-radius:12px;font-family:var(--font-mono);font-size:13.5px;resize:vertical"
+          placeholder="a police station | The police station is near my school.&#10;a swimming pool | We swim at the pool."></textarea>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:7px 0 10px">
+          Format: <code style="background:var(--orange-soft);padding:2px 6px;border-radius:4px">phrase | sentence (optional)</code>
+          · include the article (a / an / the)
+        </p>
+        <button class="btn btn-sec" id="btnPreviewCustom">Preview the blanking</button>
+        <div id="customPreview" style="margin-top:14px"></div>
+      </div>
+
+      <div class="phrase-grid" id="phraseGrid"></div>
+    </div>
+  </section>
+
+  <!-- ═══ Results ═══ -->
+  <section class="page" id="page-analysis">
+    <div class="card">
+      <h2>Results</h2>
+      <p class="desc">
+        Filter to see accuracy trends, which letter positions fail most,
+        and which sound structures are hardest. This is the raw data for your thesis.
+      </p>
+
+      <div class="filters">
+        <select id="fClass"><option value="">All assignments</option></select>
+        <select id="fWord"><option value="">All words</option></select>
+        <input id="fDate" type="date" title="Single day">
+        <button class="btn btn-sec" id="btnLoad">Load</button>
+        <button class="btn btn-sec" id="btnClearFilters" title="Clear every filter and show all">Clear filters</button>
+        <button class="btn btn-sec" id="btnCsv">⬇ Export CSV</button>
+      </div>
+      <p id="filterState" style="margin:-4px 0 14px;font-size:12.5px;color:var(--ink-soft)"></p>
+
+      <!-- ★★★ 每個 assignment 分開打包 + CSV 各自下載 -->
+      <div class="per-asg" id="perAsgBox"></div>
+
+      <div id="analysisBody">
+        <div class="empty">
+          <div class="big">📊</div>
+          <p>Press Load to read answers from Firestore</p>
+          <p style="font-size:12.5px;margin-top:6px">You need to paste the Security Rules first</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Account ═══ -->
+  <section class="page" id="page-account">
+    <div class="card">
+      <h2>Account</h2>
+      <p class="desc">Change your sign-in email and password. After a password change you must sign in again on other devices.</p>
+
+      <!-- ══ 教師姓名 ══ -->
+      <div style="margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid var(--line)">
+        <h3 style="margin:0 0 4px">Your display name</h3>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--ink-soft)">
+          Shown at the top of this console and recorded with the assignments you create.
+        </p>
+        <div class="field">
+          <label for="teacherName">Display name</label>
+          <input id="teacherName" type="text" maxlength="40" placeholder="Mr Koo">
+        </div>
+        <button class="btn btn-primary" id="btnSaveName" style="width:auto;padding:0 22px;min-height:42px">Save name</button>
+        <span id="nameHint" style="margin-left:12px;font-size:12.5px;color:var(--ink-soft)"></span>
+      </div>
+
+      <!-- ══ 存取權限自檢 ══ -->
+      <div style="margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid var(--line)">
+        <h3 style="margin:0 0 4px">Access check</h3>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--ink-soft)">
+          Saving an assignment or loading Results needs a teacher profile
+          (<code class="mono">teachers/{uid}</code>). If either is blocked, press Repair —
+          you do not need the Firebase Console.
+        </p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-sec" id="btnCheckAccess" style="width:auto;padding:0 20px;min-height:42px">Check</button>
+          <button class="btn btn-primary" id="btnRepairAccess" style="width:auto;padding:0 20px;min-height:42px">Repair my access</button>
+          <span id="accessHint" style="font-size:12.5px;color:var(--ink-soft)"></span>
+        </div>
+      </div>
+
+      <!-- ══ Gemini API key（選填）══ -->
+      <div style="margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid var(--line)">
+        <h3 style="margin:0 0 4px">AI sentence writing <span class="pill grey" id="keyState">optional</span></h3>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--ink-soft)">
+          Most words already have a sentence in the built-in library, so you never need a key.
+          Add one only if you want PCS to write sentences for words the library doesn't know.
+        </p>
+        <div class="field">
+          <label for="geminiKey">Gemini API key</label>
+          <input id="geminiKey" type="password" autocomplete="off" spellcheck="false"
+                 placeholder="AIza…">
+          <div class="hint">Stored only in this browser (localStorage). Never written to Firestore.</div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-primary" id="btnSaveKey" style="width:auto;padding:0 22px;min-height:42px">Save key</button>
+          <button class="btn btn-sec" id="btnClearKey" style="width:auto;padding:0 18px;min-height:42px">Remove</button>
+          <span id="keyHint" style="font-size:12.5px;color:var(--ink-soft)"></span>
+        </div>
+        <p style="margin:14px 0 0;font-size:12.5px;line-height:1.7;color:var(--ink-soft)">
+          Get a free key at <code class="mono">aistudio.google.com/apikey</code>.
+          A browser-side key is fine for a research pilot; for a public deployment put the
+          call behind a server so the key is not visible.
+        </p>
+      </div>
+
+      <div style="margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid var(--line)">
+        <h3 style="margin:0 0 4px">Change email</h3>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--ink-soft)">Requires re-entering your current password.</p>
+        <div class="field">
+          <label for="newEmail">New email</label>
+          <input id="newEmail" type="email" placeholder="Enter your email">
+        </div>
+        <button class="btn btn-sec" id="btnChangeEmail">Change email</button>
+      </div>
+
+      <!-- ══ 清空所有資料 ══ -->
+      <div style="margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid var(--line)">
+        <h3 style="margin:0 0 4px;color:#991B1B">Reset all data</h3>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--ink-soft)">
+          Deletes every assignment, every answer and every score — for a clean start before
+          you collect real data. <strong>This cannot be undone.</strong>
+        </p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-sec" id="btnResetCheck" style="width:auto;padding:0 20px;min-height:42px">Check what would be deleted</button>
+          <button class="btn btn-sec" id="btnResetAll" style="width:auto;padding:0 20px;min-height:42px;border-color:#FCA5A5;color:#991B1B">Delete everything…</button>
+        </div>
+        <div id="resetHint" style="margin-top:12px;font-size:13px;line-height:1.8"></div>
+        <div id="resetConfirmBox" hidden style="margin-top:12px;padding:14px;border-radius:10px;background:#FEF2F2;border:1.5px solid #FCA5A5">
+          <label for="resetPhrase" style="display:block;font-size:13px;font-weight:700;color:#991B1B;margin-bottom:8px">
+            Type <code style="background:#fff;padding:2px 6px;border-radius:4px">DELETE ALL</code> to confirm
+          </label>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <input id="resetPhrase" type="text" placeholder="DELETE ALL"
+                   style="flex:1;min-width:180px;height:40px;padding:0 12px;border:2px solid #FCA5A5;border-radius:8px;font-size:15px;font-weight:700">
+            <button class="btn btn-primary" id="btnResetDo"
+                    style="width:auto;padding:0 22px;min-height:40px;background:#DC2626">Permanently delete</button>
+            <button class="btn btn-sec" id="btnResetCancel" style="width:auto;padding:0 18px;min-height:40px">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="margin:0 0 4px">Change password</h3>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--ink-soft)">
+          This system stores student names and results. Use a password only you know.
+        </p>
+        <div class="field">
+          <label for="curPw">Current password</label>
+          <input id="curPw" type="password" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label for="newPw">New password</label>
+          <input id="newPw" type="password" autocomplete="new-password">
+          <div class="pw-meter" id="pwMeter" style="display:flex;gap:4px;margin-top:7px">
+            <div class="pw-bar" style="height:4px;flex:1;border-radius:2px;background:var(--line)"></div>
+            <div class="pw-bar" style="height:4px;flex:1;border-radius:2px;background:var(--line)"></div>
+            <div class="pw-bar" style="height:4px;flex:1;border-radius:2px;background:var(--line)"></div>
+            <div class="pw-bar" style="height:4px;flex:1;border-radius:2px;background:var(--line)"></div>
+          </div>
+          <div id="pwHint" style="font-size:12px;color:var(--ink-soft);margin-top:5px"></div>
+        </div>
+        <div class="field">
+          <label for="newPw2">Confirm new password</label>
+          <input id="newPw2" type="password" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary" id="btnChangePw">Change password</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Guide ═══ -->
+  <section class="page" id="page-guide">
+    <div class="card">
+      <h2>Setup guide</h2>
+      <p class="desc">One-time Firebase setup, then your daily classroom routine.</p>
+
+      <h3>1. One-time setup (in Firebase Console)</h3>
+      <ol style="font-size:13.5px;line-height:1.9;padding-left:22px;margin:0;color:var(--ink-mid)">
+        <li><b>Authentication → Sign-in method</b> → enable <b>Email/Password</b> AND <b>Google</b><br>
+          <span style="color:#991B1B">← without this you get "This sign-in method is not enabled yet"</span></li>
+        <li><b>Authentication → Settings → Authorized domains</b> → Add domain → <code>localhost</code><br>
+          <span style="color:#991B1B">← without this you get "This domain is not authorised"</span></li>
+        <li><b>Firestore Database → Rules</b> → paste <code>firestore.rules</code> → Publish</li>
+        <li><b>Word bank</b> tab → tick phrases → Write to Firestore</li>
+        <li><b>Change the default password</b> (Account tab)</li>
+      </ol>
+
+      <h3>2. Daily classroom routine</h3>
+      <ol style="font-size:13.5px;line-height:1.9;padding-left:22px;margin:0;color:var(--ink-mid)">
+        <li>Pupils open the app → enter seat no., name, class</li>
+        <li>They practise for 5–10 minutes</li>
+        <li>You press <b>⬇ Export CSV</b> and save the file <b>(do this every day)</b></li>
+      </ol>
+
+      <h3>3. ⚠️ Why export every day?</h3>
+      <p style="font-size:13.5px;line-height:1.7;margin:0;color:var(--ink-mid);background:#FFFBEB;padding:14px;border-radius:12px;border:1.5px solid #FDE68A">
+        Firestore free tier allows 50,000 reads per day. One full export reads 40,000 documents
+        — that is 80% of the day's quota. Exporting <strong>only the current day</strong> uses about
+        6,000 reads, so 7 daily files is safe.
+      </p>
+
+      <h3>4. How phrase blanking works</h3>
+      <p style="font-size:13.5px;line-height:1.7;margin:0;color:var(--ink-mid)">
+        The article (a / an / the) is shown but never blanked — it is already known.
+        Blanking targets the content words, ordered by <strong>spelling weight</strong>.
+        For <code>a post office</code>: L1 blanks <code>ff</code> in office (doubled consonant, weight 73),
+        L2 blanks the silent <code>e</code>, L3 moves to <code>post</code>.
+      </p>
+    </div>
+  </section>
+
+</div>
+
+<!-- ★ 載入失敗提示：module 語法錯誤時瀏覽器不會報錯到 UI，
+     這裡用一個全域錯誤監聽器把問題顯式呈現出來。 -->
+<script>
+window.__pcsFatal = function (msg) {
+  var d = document.getElementById('pcsFatal');
+  if (!d) {
+    d = document.createElement('div');
+    d.id = 'pcsFatal';
+    d.style.cssText = 'position:fixed;inset:auto 12px 12px 12px;z-index:9999;padding:14px 16px;' +
+      'background:#FEE2E2;border:2px solid #DC2626;border-radius:10px;color:#7F1D1D;' +
+      'font:600 13px/1.6 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.2)';
+    document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(d); });
+    if (document.body) document.body.appendChild(d);
+  }
+  d.textContent = 'PCS could not start: ' + msg;
+};
+window.addEventListener('error', function (e) {
+  if (e.target && e.target.tagName === 'SCRIPT') {
+    window.__pcsFatal('a script failed to load (' + (e.target.src || 'inline') + ')');
+  }
+});
+window.addEventListener('unhandledrejection', function (e) {
+  var r = e.reason;
+  if (r && r.message && /import|module|syntax/i.test(r.message)) {
+    window.__pcsFatal(r.message);
+  }
+});
+</script>
+
+<script type="module">
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-10-16-r43';
+import { initFirebase } from './assets/js/firebase.js?v=2026-10-16-r43';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-10-16-r43';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-10-16-r43';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-10-16-r43';
+import { analyseItem } from './assets/js/phrase.js?v=2026-10-16-r43';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-10-16-r43';
+import {
+  buildAssignment, makePin, normalisePin, isValidPinFormat,
+  assignmentDocId, joinUrl,
+} from './assets/js/assignments.js?v=2026-10-16-r43';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-10-16-r43';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-10-16-r43';
+
+const V = FIREBASE_VERSION;
+const msg = document.getElementById('msg');
+
+// ── 認證閘門 ──
+  const gate = document.getElementById('authGate');
+  gate.style.display = 'grid';
+
+  // ★ 醒目提示：本次改了 firestore.rules（teachers 的 update 規則），
+  //   沒重新Publish 的話 Repair 按鈕會失敗。使用者看到一次就夠了。
+  const RULES_CHANGED = 'r5';
+  if (localStorage.getItem('pcs.rulesSeen') !== RULES_CHANGED) {
+    localStorage.setItem('pcs.rulesSeen', RULES_CHANGED);
+    // 不打斷流程，但進 admin.html 後立刻說明
+    setTimeout(() => {
+      const t = document.getElementById('rulesBanner');
+      if (!t) return;
+      t.hidden = false;
+      t.innerHTML =
+        '<b>One-time setup:</b> the Security Rules changed. Firebase Console → '
+        + '<b>Firestore Database → Rules</b> → paste the latest <code>firestore.rules</code> '
+        + '→ <b>Publish</b>. Needed once; otherwise "Repair my access" in Account cannot work.';
+      t.querySelector('button')?.addEventListener('click', () => { t.hidden = true; });
+    }, 1200);
+  }
+
+  initFirebase({ signIn: false }).then(async ({ auth: a }) => {
+  // ★ 保持登入：明確設為 local（關掉分頁、重新開瀏覽器都還在）。
+  //   Google 登入與 Email 登入都適用。
+  try {
+    const { setPersistence, browserLocalPersistence } = await import(
+      './assets/vendor/firebase/firebase-auth.js'
+    );
+    await setPersistence(a, browserLocalPersistence);
+  } catch { /* 已在其他頁設定過就忽略 */ }
+
+  // ★ 等 Firebase 把持久化登入狀態恢復完，再決定要不要跳回登入頁。
+  //   直接用 onAuthStateChanged 的第一次回呼有時會拿到尚未恢復的 null，
+  //   症狀就是「每次開後台都要重新 Sign in」。
+  //   authStateReady() 會等到恢復完成（或解析出是未登入）才 resolve。
+  let user = a.currentUser;
+  try {
+    if (a.authStateReady) {
+      await a.authStateReady();
+      user = a.currentUser;
+    } else {
+      user = await new Promise((resolve) => {
+        const t = setTimeout(() => resolve(a.currentUser), 2500);
+        const unsub = a.onAuthStateChanged((u) => { clearTimeout(t); unsub(); resolve(u); });
+      });
+    }
+  } catch { user = a.currentUser; }
+
+  if (!user) {
+    location.replace('admin-login.html');
+    return;
+  }
+
+  try {
+    // 確認白名單（ teachers/{uid} ）
+    const { doc, getDoc } = await import(
+      './assets/vendor/firebase/firebase-firestore.js'
+    );
+    const { db } = await initFirebase({ signIn: false });
+    const snap = await getDoc(doc(db, PCS_CONFIG.collections.teachers, user.uid));
+    if (!snap.exists()) {
+      // 已登入但未登記：建立白名單（Email 與 Google 都需要，否則讀不到 exposures）
+      const { setDoc, serverTimestamp } = await import(
+        './assets/vendor/firebase/firebase-firestore.js'
+      );
+      await setDoc(doc(db, PCS_CONFIG.collections.teachers, user.uid), {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || user.email?.split('@')[0] || 'Teacher',
+        photoURL: user.photoURL || null,
+        method: (user.providerData?.[0]?.providerId === 'google') ? 'google' : 'password',
+        role: 'teacher',
+        createdAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp(),
+      });
+    }
+  } catch (e) {
+    // ★ 不阻擋進入後台。白名單寫不進去（例如 rules 未 publish），
+    //   老師仍應看得到 Assignments；只是 Results 讀不到資料，
+    //   那時 Results 頁會自己診斷並提示。
+    console.warn('[PCS] whitelist check failed', e?.message);
+    showMsg(
+      'Signed in, but your teacher profile could not be saved, so Results may stay empty. ' +
+      'Publish firestore.rules in the Firebase Console, then reload.', 'info', 9000
+    );
+  }
+
+  // 顯示老師名稱
+  const nm = user.displayName || user.email?.split('@')[0] || 'Teacher';
+  window.__pcsTeacher = { uid: user.uid, name: nm, email: user.email };
+  const el = document.getElementById('whoName');
+  if (el) el.textContent = nm;
+  const av = document.getElementById('avatar');
+  if (av) {
+    if (user.photoURL) { av.style.backgroundImage = `url(${user.photoURL})`; av.textContent = ''; }
+    else { av.textContent = nm.slice(0, 1).toUpperCase(); }
+  }
+
+  gate.style.display = 'none';
+  document.getElementById('appShell').style.display = 'block';
+
+  // ★ 閘門通過後才載入課程（篩選需要 teacherId）
+  try { window.__pcsOnReady?.(); } catch (e) { console.warn('[PCS] initial load failed', e?.message); }
+
+  // ★ 順便確保白名單真的落地。新 Google 帳號最容易漏掉這一步，
+  //   症狀是之後每次改例句都跳「Firestore rules blocked this」。
+  ensureWhitelist().then(ok => {
+    if (!ok) {
+      showMsg(
+        'Your teacher profile is not saved yet, so editing may be blocked. ' +
+        'Publish the latest firestore.rules in the Firebase Console, then reload.', 'info', 10000
+      );
+    }
+  });
+}).catch((e) => {
+  gate.innerHTML = `<div class="gate-err">
+    <p><b>Could not reach the authentication service.</b></p>
+    <p>${String(e.message || e)}</p>
+    <p><a href="admin-login.html">Back to sign in</a></p>
+  </div>`;
+});
+
+// ── Tabs ──
+const nav = document.querySelector('.nav');
+nav.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-page]');
+  if (!b) return;
+  for (const x of nav.querySelectorAll('button')) x.classList.toggle('active', x === b);
+  for (const p of document.querySelectorAll('.page')) p.classList.toggle('active', p.id === `page-${b.dataset.page}`);
+  if (b.dataset.page === 'analysis') loadData();
+});
+
+document.getElementById('btnAccount').addEventListener('click', () =>
+  nav.querySelector('button[data-page="account"]').click());
+
+document.getElementById('btnSignout').addEventListener('click', async () => {
+  if (!confirm('Sign out?')) return;
+  await signOut();
+  location.href = 'admin-login.html';
+});
+
+// ── Messages ──
+let __msgTimer = null;
+/**
+ * 顯示提示（畫面底部，3 秒後自動消失）。
+ * ★ 不再 scrollTo —— 那會讓老師每次操作後視線被拉回頁頂。
+ */
+function showMsg(t, k = 'info', ms = 3000) {
+  msg.textContent = t;
+  msg.className = `msg ${k} show`;
+  clearTimeout(__msgTimer);
+  if (ms > 0) __msgTimer = setTimeout(() => { msg.className = 'msg'; }, ms);
+}
+
+// ══════════════════════════════════════════════
+// Word bank
+// ══════════════════════════════════════════════
+const grid = document.getElementById('phraseGrid');
+document.getElementById('seedCount').textContent = `${PHRASE_KEYS.length} phrases`;
+
+grid.innerHTML = PHRASE_KEYS.map(ph => {
+  const info = phraseInfo(ph);
+  const a = analyseItem(ph);
+  return `
+  <div class="ph">
+    <div class="ph-head">
+      <input type="checkbox" class="checkbox" data-ph="${ph}" checked>
+      <span class="ph-emoji">${info?.image ?? '📘'}</span>
+      <span class="ph-word">${ph}</span>
+    </div>
+    <div class="ph-sent">${(info?.sentences?.[0]) ?? '(no sentence)'}</div>
+    <div class="ph-levels">
+      ${a.levels.map(L => `<span class="lv-chip" title="blanks the ${L.target.pattern} in “${L.targetWord}” (weight ${L.target.weight})">L${L.level} ${L.display}</span>`).join('')}
+    </div>
+    ${info?.note ? `<div class="ph-note">${info.note}</div>` : ''}
+  </div>`;
+}).join('');
+
+grid.querySelectorAll('.checkbox').forEach(c => c.addEventListener('change', updateSel));
+function updateSel() {
+  document.getElementById('selCount').textContent =
+    `${grid.querySelectorAll('.checkbox:checked').length} selected`;
+}
+document.getElementById('btnSelAll').addEventListener('click', () => {
+  grid.querySelectorAll('.checkbox').forEach(c => c.checked = true); updateSel();
+});
+document.getElementById('btnSelNone').addEventListener('click', () => {
+  grid.querySelectorAll('.checkbox').forEach(c => c.checked = false); updateSel();
+});
+
+/** Write selected phrases to Firestore */
+document.getElementById('btnSeed').addEventListener('click', async () => {
+  const chosen = [...grid.querySelectorAll('.checkbox:checked')].map(c => c.dataset.ph);
+
+  const raw = document.getElementById('customPhrases').value.trim();
+  const customs = [];
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const [w, ...rest] = t.split('|');
+    const word = w.trim().toLowerCase();
+    if (!word) continue;
+    customs.push({ word, sentences: rest.join('|').trim() ? [rest.join('|').trim()] : [] });
+  }
+
+  if (!chosen.length && !customs.length) { showMsg('Tick at least one phrase first', 'error'); return; }
+
+  const btn = document.getElementById('btnSeed');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Writing…';
+
+  try {
+    const db = (await initFirebase({ signIn: false })).db;
+    const { doc, setDoc, writeBatch, serverTimestamp } =
+      await import('./assets/vendor/firebase/firebase-firestore.js');
+
+    const W = PCS_CONFIG.collections.words;
+    const batch = writeBatch(db);
+    let n = 0;
+
+    for (const ph of chosen) {
+      const d = toWordDoc(ph);
+      batch.set(doc(db, W, d.wordId), { ...d, createdAt: serverTimestamp() });
+      n++;
+    }
+    for (const c of customs) {
+      const a = analyseItem(c.word);
+      batch.set(doc(db, W, 'p_' + c.word.replace(/\s+/g, '_')), {
+        wordId: 'p_' + c.word.replace(/\s+/g, '_'),
+        word: c.word, isPhrase: a.isPhrase,
+        // ★ 自訂短語也自動配 emoji（原本一律 📘），能命中就命中
+        category: categoryForWord(c.word) || 'place',
+        imageEmoji: emojiForWord(c.word),
+        imageUrl: null, imageDataUrl: null,
+        sentences: c.sentences, note: '', teachArticle: false,
+        active: true, source: 'teacher', createdAt: serverTimestamp(),
+      });
+      n++;
+    }
+
+    await batch.commit();
+    showMsg(`Wrote ${n} words to Firestore. Students will see them after refreshing.`, 'success');
+  } catch (e) {
+    console.error(e);
+    showMsg(`Write failed: ${e.message}. Common causes: Security Rules not pasted yet, or the Firestore database does not exist.`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Write to Firestore';
+  }
+});
+
+/** Preview custom phrases */
+document.getElementById('btnPreviewCustom').addEventListener('click', () => {
+  const raw = document.getElementById('customPhrases').value.trim();
+  const box = document.getElementById('customPreview');
+  if (!raw) { box.innerHTML = ''; return; }
+
+  box.innerHTML = raw.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+    const [w, ...rest] = line.split('|');
+    const word = w.trim().toLowerCase();
+    const sent = rest.join('|').trim();
+    let a;
+    try { a = analyseItem(word); }
+    catch { return `<div class="ph"><strong>${word}</strong> — cannot parse</div>`; }
+    return `
+    <div class="ph" style="margin-bottom:10px">
+      <div class="ph-head"><span class="ph-emoji">${emojiForWord(word)}</span><span class="ph-word">${word}</span></div>
+      ${sent ? `<div class="ph-sent">${sent}</div>` : '<div class="ph-sent" style="color:var(--ink-mute)">(no sentence)</div>'}
+      <div class="ph-levels">${a.levels.map(L => `<span class="lv-chip">L${L.level} ${L.display}</span>`).join('')}</div>
+    </div>`;
+  }).join('');
+});
+
+// ══════════════════════════════════════════════
+// Account
+// ★ 姓名與頭像由認證閘門填入（gate 成功後那段程式碼）。
+//   這裡原本有一份重複的 s.user 版本，但閘門重寫後 s 已不存在，
+//   參照到未宣告變數會讓整個 module 中斷 —— 連帶 Assignments 全部不初始化。
+// ══════════════════════════════════════════════
+
+// ── 存取權限自檢 / 修復 ──
+const accessHint = document.getElementById('accessHint');
+
+/**
+ * 儲存教師顯示名稱。
+ * ★ 三處都要更新，否則會出現「改了但畫面還是舊名字」：
+ *   ① Firestore teachers/{uid}.displayName（權威來源）
+ *   ② Firebase Auth user.displayName（跨裝置一致）
+ *   ③ window.__pcsTeacher + 畫面上的名稱與頭像
+ */
+async function saveTeacherName(nextName) {
+  const nm = String(nextName || '').trim();
+  if (!nm) return { ok: false, error: 'Type a name first.' };
+
+  const { db, auth } = await initFirebase({ signIn: false });
+  const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+  const uid = auth.currentUser?.uid;
+  if (!uid) return { ok: false, error: 'Not signed in.' };
+
+  // ① Firestore
+  await fs.setDoc(fs.doc(db, PCS_CONFIG.collections.teachers, uid), {
+    ...(window.__pcsWhitelistSnapshot || {}),
+    uid,
+    email: auth.currentUser?.email ?? null,
+    displayName: nm,
+    photoURL: auth.currentUser?.photoURL ?? null,
+    method: (auth.currentUser?.providerData?.[0]?.providerId === 'google') ? 'google' : 'password',
+    role: 'teacher',
+    lastLoginAt: fs.serverTimestamp(),
+  }, { merge: true });
+
+  // ② Firebase Auth（best effort：Google 帳號需要重新授權才能改）
+  try {
+    await auth.currentUser?.updateProfile({ displayName: nm });
+  } catch (e) {
+    console.warn('[PCS] Auth profile name not updated', e?.message);
+  }
+
+  // ③ 畫面
+  window.__pcsTeacher = { ...(window.__pcsTeacher || {}), name: nm, uid };
+  const el = document.getElementById('whoName');
+  if (el) el.textContent = nm;
+  const av = document.getElementById('avatar');
+  if (av && !auth.currentUser?.photoURL) av.textContent = nm.slice(0, 1).toUpperCase();
+
+  return { ok: true };
+}
+
+document.getElementById('btnSaveName')?.addEventListener('click', async () => {
+  const hint = document.getElementById('nameHint');
+  const btn = document.getElementById('btnSaveName');
+  btn.disabled = true;
+  hint.style.color = 'var(--ink-soft)';
+  hint.textContent = 'Saving…';
+  try {
+    const r = await saveTeacherName(document.getElementById('teacherName').value);
+    if (r.ok) {
+      hint.style.color = '#3f6212';
+      hint.textContent = 'Saved.';
+      showMsg('Display name updated.', 'success');
+    } else {
+      hint.style.color = '#B45309';
+      hint.textContent = r.error || 'Could not save.';
+    }
+  } catch (e) {
+    hint.style.color = '#991B1B';
+    hint.textContent = friendlyish(e);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// 進入 Account 頁時把現有名字帶進輸入框
+document.getElementById('btnAccount')?.addEventListener('click', () => {
+  setTimeout(() => {
+    const f = document.getElementById('teacherName');
+    if (f && window.__pcsTeacher?.name) f.value = window.__pcsTeacher.name;
+  }, 60);
+});
+
+async function checkAccess({ repair = false } = {}) {
+  const hint = accessHint;
+  hint.style.color = 'var(--ink-soft)';
+  hint.textContent = repair ? 'Repairing…' : 'Checking…';
+
+  const { db, auth } = await initFirebase({ signIn: false });
+  const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+  const uid = auth.currentUser?.uid;
+  const out = { profile: false, role: null, readExposures: false, write: false };
+
+  try {
+    const p = await fs.getDoc(fs.doc(db, PCS_CONFIG.collections.teachers, uid));
+    out.profile = p.exists();
+    out.role = p.data()?.role ?? null;
+  } catch { /* ignore */ }
+
+  if (repair) {
+    await ensureWhitelist({ force: true });
+    try {
+      const p = await fs.getDoc(fs.doc(db, PCS_CONFIG.collections.teachers, uid));
+      out.profile = p.exists();
+      out.role = p.data()?.role ?? null;
+    } catch { /* ignore */ }
+  }
+
+  try {
+    await fs.getDocs(fs.query(fs.collection(db, PCS_CONFIG.collections.exposures), fs.limit(1)));
+    out.readExposures = true;
+  } catch { /* ignore */ }
+
+  try {
+    const ref = fs.doc(db, PCS_CONFIG.collections.assignments, `probe_${uid.slice(-6)}`);
+    await fs.setDoc(ref, { probe: true });
+    out.write = true;
+    await fs.deleteDoc(ref).catch(() => {});
+  } catch { /* ignore */ }
+
+  const okAll = out.profile && out.role === 'teacher' && out.readExposures && out.write;
+  if (okAll) {
+    hint.style.color = '#3f6212';
+    hint.textContent = 'All good — you can create assignments and read Results.';
+  } else {
+    const missing = [];
+    if (!out.profile) missing.push('no teacher profile');
+    else if (out.role !== 'teacher') missing.push(`role is "${out.role}", expected "teacher"`);
+    if (!out.readExposures) missing.push('cannot read Results');
+    if (!out.write) missing.push('cannot create assignments');
+    hint.style.color = '#B45309';
+    hint.textContent = 'Problem: ' + missing.join(' · ')
+      + (repair ? '' : ' — press Repair.');
+    if (repair && !okAll) {
+      hint.textContent += ' If it still fails, publish the latest firestore.rules, then sign out and back in.';
+    }
+  }
+  return { ...out, ok: okAll };
+}
+
+document.getElementById('btnCheckAccess')?.addEventListener('click', () => checkAccess());
+document.getElementById('btnRepairAccess')?.addEventListener('click', () => checkAccess({ repair: true }));
+
+// ── 清空所有資料（Reset）──
+const resetHint = document.getElementById('resetHint');
+const resetConfirmBox = document.getElementById('resetConfirmBox');
+
+/** 統計各集合筆數（不刪） */
+async function countAllData() {
+  const { db } = await initFirebase({ signIn: false });
+  const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+  const out = {};
+  for (const c of ['assignments', 'exposures', 'sessions']) {
+    try {
+      const s = await fs.getDocs(fs.query(fs.collection(db, c), fs.limit(1000)));
+      out[c] = s.size;
+    } catch (e) {
+      out[c] = `blocked (${e.code || 'error'})`;
+    }
+  }
+  return out;
+}
+
+document.getElementById('btnResetCheck')?.addEventListener('click', async () => {
+  resetHint.style.color = 'var(--ink-soft)';
+  resetHint.textContent = 'Checking…';
+  const n = await countAllData();
+  const parts = Object.entries(n).map(([k, v]) => `${k}: ${v}`);
+  const blocked = Object.values(n).some(v => typeof v === 'string');
+  resetHint.innerHTML =
+    `Would delete → ${parts.join(' · ')}` + (blocked
+      ? '<br><span style="color:#991B1B">Some collections are blocked. Publish the latest firestore.rules first (the reset needs delete permission on exposures).</span>'
+      : '');
+});
+
+document.getElementById('btnResetAll')?.addEventListener('click', () => {
+  resetConfirmBox.hidden = false;
+  document.getElementById('resetPhrase').value = '';
+  document.getElementById('resetPhrase').focus();
+});
+document.getElementById('btnResetCancel')?.addEventListener('click', () => {
+  resetConfirmBox.hidden = true;
+});
+
+document.getElementById('btnResetDo')?.addEventListener('click', async () => {
+  const phrase = document.getElementById('resetPhrase').value.trim();
+  if (phrase !== 'DELETE ALL') {
+    resetHint.style.color = '#991B1B';
+    resetHint.textContent = 'Type DELETE ALL exactly to confirm.';
+    return;
+  }
+
+  const btn = document.getElementById('btnResetDo');
+  btn.disabled = true;
+  resetHint.style.color = 'var(--ink-soft)';
+  resetHint.textContent = 'Deleting…';
+
+  try {
+    const { db } = await initFirebase({ signIn: false });
+    const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+
+    const deleted = {};
+    const failed = [];
+    for (const c of ['exposures', 'sessions', 'assignments']) {
+      let n = 0;
+      try {
+        // 分批刪（每次 400 筆，避免一次太大）
+        for (let pass = 0; pass < 20; pass++) {
+          const snap = await fs.getDocs(fs.query(fs.collection(db, c), fs.limit(400)));
+          if (snap.empty) break;
+          const batch = fs.writeBatch(db);
+          snap.docs.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+          n += snap.size;
+        }
+        deleted[c] = n;
+      } catch (e) {
+        deleted[c] = 0;
+        failed.push(`${c}: ${e.code || e.message}`);
+      }
+    }
+
+    const total = Object.values(deleted).reduce((a, b) => a + b, 0);
+
+    // ★★★ 必須清掉 Firestore 本地快取 + 重新載入頁面。
+    //   persistentLocalCache 會把讀過的資料留在瀏覽器裡，
+    //   伺服器清空了但本地還有 → 下一次讀取會把「已刪除」的資料再顯示出來。
+    //   使用者看到的症狀就是「我清空了，東西又冒出來」。
+    const { clearFirestoreCache } = await import('./assets/js/firebase.js');
+    const cache = await clearFirestoreCache();
+
+    if (failed.length) {
+      resetHint.innerHTML = `<span style="color:#991B1B">Partly done — ${total} deleted. Failed: ${failed.join('; ')}.<br>`
+        + 'If this says permission-denied, publish the latest firestore.rules and try again.</span>';
+    } else {
+      resetHint.innerHTML = `<span style="color:#3f6212">✓ Deleted ${total} documents from the server.</span><br>`
+        + `<span style="color:var(--ink-soft)">Local browser cache ${cache.ok ? 'cleared' : 'could not be cleared'}. `
+        + `<strong>Please reload the page</strong> so no old data is left on screen.</span>`
+        + `<br><button class="btn btn-sec" id="btnReloadNow" style="margin-top:8px">Reload now</button>`;
+    }
+
+    // 頁面必須重整：Firestore 實例一旦被 terminate，現有頁面的 db 就不能用了
+    document.getElementById('btnReloadNow')?.addEventListener('click', () => location.reload());
+  } catch (e) {
+    resetHint.innerHTML = `<span style="color:#991B1B">Reset failed: ${escapeHtml(e.message || e)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── 每個 assignment 卡片：展開/收合 + 個別 CSV ──
+
+// ══════════════════════════════════════════════
+// ★★★ 每個 assignment 分別打包
+//
+//  為什麼要這樣：老師的問題是「Unit 5 那班，哪個詞哪一關錯最多、
+//  是哪個學生錯的」。混在一起的總表回答不了這個問題 ——
+//  必須先按 assignment 分組，再在組內按詞 / level / 學生分層。
+// ══════════════════════════════════════════════
+
+/**
+ * ★ 只保留「這個老師帳號自己的課程」的作答。
+ *
+ *  為什麼必須過濾：exposures 的 Firestore 規則只允許「任何老師」讀取，
+ *  rules 無法再細分到個別老師（否則跨帳號的研究协作就不可能）。
+ *  所以每個老師的後台都會讀到**全部**學生的作答 —— 換一個 Google 帳號
+ *  就會看到別的班級的資料。
+ *
+ *  這裡用 window.__pcsMyPins（由 loadAssignmentList() 依 teacherId 建立）過濾。
+ *  ★ 若 __pcsMyPins 尚未建立（課程清單還在載入），一律回傳全部 ——
+ *    寧可多顯示，也不要因為載入順序而漏掉自己的資料。
+ */
+function filterExposuresToOwnClasses(exposures) {
+  const pins = window.__pcsMyPins;
+  if (!pins || !(pins instanceof Set)) return exposures;
+  if (pins.size === 0) return [];        // 這個帳號一個課程都沒有 → 不該看到任何資料
+
+  return exposures.filter(e => {
+    const pin = e.pin
+      || (e.assignmentId || '').replace(/^pin_/, '')
+      || ((e.sessionId || '').match(/^(\d{4})_/) || [])[1];
+    return pin ? pins.has(String(pin)) : false;
+  });
+}
+
+/** 把 exposures 按 assignment 分組（舊資料沒有 assignmentId → 歸到「未標記」） */
+function groupByAssignment(exposures, assignmentTitles = {}, assignmentCreatedAt = {}) {
+  const m = new Map();
+  for (const e of exposures) {
+    // ★ 退回 sessionId 的前綴（sessionId = `${pin}_${classNo}_${date}`），
+    //   讓「修正之前的舊資料」也能正確歸組，不會全部掉進「未標記」。
+    let key = e.assignmentId || null;
+    let pin = e.pin || null;
+    if (!key && e.sessionId && /^(\d{4})_/.test(e.sessionId)) {
+      pin = pin || e.sessionId.slice(0, 4);
+      key = `pin_${pin}`;
+    }
+    const k = key || '__unassigned__';
+    if (!m.has(k)) {
+      // ★ 舊資料的 exposure 沒有 classTitle → 用目前課程清單的標題補上，
+      //   不要顯示 "(class)" 這種沒有意義的字串。
+      const title = e.classTitle
+        || assignmentTitles[k]
+        || (k === '__unassigned__' ? 'Older data with no assignment' : null);
+      m.set(k, {
+        key: k,
+        pin: pin || '—',
+        title,
+        // ★ 課程的建立時間（毫秒）。用來讓「日期新的排上面」。
+        //   優先用 assignment 本身的 createdAt（老師建課的時間），
+        //   沒有就用這個課程最後一次作答的時間。
+        createdAt: assignmentCreatedAt[k] ?? null,
+        latestAt: 0,
+        exposures: [],
+      });
+    }
+    const g = m.get(k);
+    g.exposures.push(e);
+    if ((e.clientTs ?? 0) > (g.latestAt ?? 0)) g.latestAt = e.clientTs ?? 0;
+    if (e.classTitle && g.title !== e.classTitle) g.title = e.classTitle;
+  }
+  // ★ 標題補不到 → 顯示 PIN（至少比 "(class)" 有用）
+  for (const g of m.values()) {
+    if (!g.title) g.title = `Assignment ${g.pin}`;
+    // 排序用：建立時間優先，沒有就用最後作答時間
+    g.sortAt = g.createdAt ?? g.latestAt ?? 0;
+  }
+  return [...m.values()];
+}
+
+/** sessionId → 這一局的結束時間（毫秒）。學生的「完成時間」以此為準。 */
+function buildSessionIndex(sessions) {
+  const m = new Map();
+  for (const s of sessions || []) {
+    const id = s?.sessionId || s?.id;
+    const t = s?.endedAt ?? null;
+    if (id && typeof t === 'number') m.set(String(id), t);
+  }
+  return m;
+}
+
+/** 單一 assignment 內：詞 → level → 哪個學生錯最多 */
+function buildAsgBreakdown(list, totalWordsInAsg = 0, sessions = null) {
+  // ★★ 讀取「學生真的把一局做完了」的權威紀錄：
+  //   session 文件只有在結算頁（renderResult）才寫入，且帶 endedAt。
+  //   用它來判斷「完成」與「完成時間」，而不是用
+  //   「碰過的詞數 vs 課程總詞數」去猜 —— 後者會在
+  //   「老師事後新增詞彙」或「學生續玩舊存檔」時誤報 unfinished。
+  const finishedEndBySession = new Map();
+  for (const sdoc of (sessions || [])) {
+    if (sdoc && sdoc.endedAt) finishedEndBySession.set(String(sdoc.id), sdoc.endedAt);
+  }
+
+  // 1) 逐詞逐 level
+  const byWord = new Map();
+  const byStudent = new Map();
+  let probes = 0, correct = 0;
+
+  for (const e of list) {
+    // ★★ 用「作業裡的那個項目」當身分，不是用被挖的詞。
+    //
+    //   progressive 短語一次只挖一個 pattern，不同關卡可能挖不同詞；
+    //   `e.word` 只是「這一關挖的字」，拿它當身分會讓同一個項目
+    //   被拆成好幾筆，甚至讓「碰過的詞數」少於實際（→ 誤報未完成）。
+    //   `e.phrase` 記的是學生在作業裡看到的那一項（a post office），
+    //   所以一律以它當身分；舊資料沒有 phrase 才退回 word。
+    const w = e.phrase || e.word || '(unknown)';
+    const L = e.level ?? 0;
+
+    if (!byWord.has(w)) byWord.set(w, { word: w, levels: new Map(), probes: 0, correct: 0, errors: {} });
+    const ww = byWord.get(w);
+    if (!ww.levels.has(L)) ww.levels.set(L, { level: L, probes: 0, correct: 0, students: new Map() });
+    const wl = ww.levels.get(L);
+
+    const sk = `${e.studentName || '?'}|${e.classNo || '?'}`;
+    if (!byStudent.has(sk)) {
+      byStudent.set(sk, {
+        name: e.studentName || '?', classNo: e.classNo || '?',
+        probes: 0, correct: 0, words: new Map(), lastAt: 0,
+        // ★ 未完成判定：見下方 finished 計算
+        touchedWords: new Set(), skippedCount: 0, sessionIds: new Set(),
+      });
+    }
+    const st = byStudent.get(sk);
+    // ★ 記錄最後一次作答時間 → 學生的「完成時間」
+    if ((e.clientTs ?? 0) > (st.lastAt ?? 0)) st.lastAt = e.clientTs ?? 0;
+    st.touchedWords.add(w);
+    if (e.sessionId) st.sessionIds.add(String(e.sessionId));
+    if (e.skipped === true) st.skippedCount += 1;
+
+    for (const p of (e.probes ?? [])) {
+      probes++; if (p.correct) correct++;
+      ww.probes++; wl.probes++;
+      st.probes++;
+
+      if (p.correct) { ww.correct++; wl.correct++; st.correct++; }
+      else {
+        // 記錄是哪個學生在這個詞的這個 level 錯
+        if (!wl.students.has(sk)) wl.students.set(sk, { name: st.name, classNo: st.classNo, n: 0 });
+        wl.students.get(sk).n += 1;
+        st.words.set(w, (st.words.get(w) ?? 0) + 1);
+        // 字母位置 → 錯誤次數（回答「哪個位置最容易錯」）
+        const k2 = p.i + 1;
+        ww.errors[k2] = (ww.errors[k2] ?? 0) + 1;
+      }
+    }
+  }
+
+  const words = [...byWord.values()].map(w => ({
+    word: w.word,
+    probes: w.probes,
+    correct: w.correct,
+    accuracy: w.probes ? w.correct / w.probes : 0,
+    worstPositions: Object.entries(w.errors)
+      .map(([pos, n]) => ({ pos: Number(pos), n }))
+      .sort((a, b) => b.n - a.n).slice(0, 3),
+    levels: [...w.levels.values()]
+      .map(l => ({
+        level: l.level,
+        probes: l.probes,
+        correct: l.correct,
+        accuracy: l.probes ? l.correct / l.probes : 0,
+        who: [...l.students.values()].sort((a, b) => b.n - a.n),
+      }))
+      .sort((a, b) => a.level - b.level),
+  })).sort((a, b) => a.accuracy - b.accuracy);       // 最難的排前面
+
+  const students = [...byStudent.values()].map(s => {
+    // ★★ 未完成判定
+    //   兩個獨立訊號，缺一不可：
+    //   ① 碰過的詞數 < 課程總詞數 → 一定有詞完全沒作答
+    //   ② 期間有按過 Skip → 就算詞都碰過了，也代表中途放棄了某些題
+    //   兩者皆否 → 視為完成，顯示時間。
+    //   ★ 只有在「課程詞數未知」時才會退化成只看 Skip。
+    const covered = s.touchedWords.size;
+    const missing = totalWordsInAsg ? Math.max(0, totalWordsInAsg - covered) : 0;
+
+    // ★★ 權威完成訊號：這個學生的某個 session 有 endedAt（結算頁寫入）。
+    //   sessionId 編碼了 pin + 班號 + 日期，所以能精準對到「這個學生、這份課程、
+    //   這一天」的那一局 —— 不受「事後新增詞彙」影響。
+    const finTimes = [...s.sessionIds]
+      .map(id => finishedEndBySession.get(id))
+      .filter(Boolean);
+    const hasFinishedSession = finTimes.length > 0;
+    // 完成時間優先用 session 的結算時間（最準確），否則退回最後一次作答時間。
+    const completionTs = finTimes.length
+      ? Math.max(...finTimes)
+      : (s.lastAt ?? null);
+
+    // ★ 完成 = （碰齊所有詞且沒按 Skip）或（有結算紀錄且沒按 Skip）。
+    //   有結算紀錄就代表那一局真的結束了；沒按過 Skip 才視為「做完」。
+    const finished = (missing === 0 && s.skippedCount === 0)
+                  || (hasFinishedSession && s.skippedCount === 0);
+
+    return {
+      name: s.name, classNo: s.classNo,
+      probes: s.probes, correct: s.correct,
+      accuracy: s.probes ? s.correct / s.probes : 0,
+      lastAt: completionTs,
+      finished,
+      coveredWords: covered,
+      missingWords: missing,
+      skippedCount: s.skippedCount,
+      hardWords: [...s.words.entries()]
+        .map(([w, n]) => ({ word: w, n })).sort((a, b) => b.n - a.n).slice(0, 3),
+    };
+  })
+    // ★ 分數最高的排前面（原本是「錯最多的排前面」）。
+    //   老師要一眼看出誰掌握得好，而不是誰需要幫忙。
+    //   平手時（都 100%）看完成時間 —— 早完成的排前面。
+    .sort((a, b) => b.accuracy - a.accuracy || (a.lastAt ?? Infinity) - (b.lastAt ?? Infinity));
+
+  return {
+    words, students,
+    probes, correct,
+    accuracy: probes ? correct / probes : 0,
+    studentCount: students.length,
+    wordCount: words.length,
+    unfinishedCount: students.filter(s => !s.finished).length,
+  };
+}
+
+const pct = v => (v * 100).toFixed(0) + '%';
+
+/** HTML 轉義（課程名稱是老師自由輸入的） */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
+
+/** 把每個 assignment 的卡片放進 Results 頁 */
+function renderPerAssignmentBox(exposures, sessions) {
+  const box = document.getElementById('perAsgBox');
+  if (!box) return;
+  // ★ 只顯示這個老師自己班的資料（見 filterExposuresToOwnClasses 的說明）
+  const mine = filterExposuresToOwnClasses(exposures);
+  box.innerHTML = mine.length ? renderPerAssignment(mine, sessions) : '';
+  window.__pcsLastExposures = mine;
+}
+
+/** 渲染所有 assignment 的卡片（可摺疊） */
+function renderPerAssignment(exposures, sessions) {
+  const groups = groupByAssignment(
+    exposures, window.__pcsAsgTitles || {}, window.__pcsAsgCreatedAt || {});
+  if (!groups.length) return '';
+
+  // ★ 依「日期新的排前面」。
+  //   原本用「作答筆數多的排前面」，但老師的實際需求是
+  //   「我剛建的那個班要看哪裡」—— 最近的課程一定在最上面。
+  //   作答筆數只作為同一天先後的次要排序依據。
+  groups.sort((a, b) => (b.sortAt ?? 0) - (a.sortAt ?? 0)
+                       || b.exposures.length - a.exposures.length);
+
+  return groups.map((g, gi) => {
+    // ★ 課程的總詞數 → 用來判斷學生是否「做到一半」
+    const b = buildAsgBreakdown(g.exposures, (window.__pcsAsgWordCount || {})[g.key] ?? 0, sessions);
+    const key = esc(g.key);
+
+    const wordRows = b.words.map(w => `
+      <tr>
+        <td><strong>${esc(w.word)}</strong></td>
+        <td>${w.probes}</td>
+        <td>${pct(w.accuracy)}</td>
+        <td>${w.worstPositions.length
+          ? w.worstPositions.map(p => `Position ${p.pos} ×${p.n}`).join(', ') : '—'}</td>
+        <td>${w.levels.map(l => `L${l.level}: ${pct(l.accuracy)}`).join('<br>')}</td>
+      </tr>`).join('');
+
+    // ★ 格式：2026-10-08 13:45（本地時間）
+    const fmtTime = ts => {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return '—';
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+
+    // ★ 完成 → 顯示完成時間；未完成 → 顯示 unfinished + 原因
+    const fmtFinished = s => {
+      if (s.finished) {
+        // ★ 若完成來自 session 結算紀錄，但課程事後又新增了詞彙，
+        //   那些詞這一局沒練到是正常的 —— 加個 tooltip 說明，避免老師誤會。
+        const note = s.missingWords > 0
+          ? ` title="Completed this session. ${s.missingWords} word${s.missingWords === 1 ? '' : 's'} were added to the assignment afterwards and weren't in this run."`
+          : '';
+        return `<span style="color:#15803D;font-weight:600"${note}>${fmtTime(s.lastAt)} ✓</span>`;
+      }
+      const why = [];
+      if (s.missingWords > 0) why.push(`${s.missingWords} word${s.missingWords === 1 ? '' : 's'} not attempted`);
+      if (s.skippedCount > 0) why.push(`skipped ${s.skippedCount} time${s.skippedCount === 1 ? '' : 's'}`);
+      const tip = why.length ? ` title="${esc(why.join(' · '))}"` : '';
+      return `<span style="color:#B45309;font-weight:600"${tip}>unfinished</span>`;
+    };
+
+    const studentRows = b.students.map(s => `
+      <tr>
+        <td>${esc(s.classNo)}</td>
+        <td><strong>${esc(s.name)}</strong></td>
+        <td>${s.probes}</td>
+        <td>${pct(s.accuracy)}</td>
+        <td>${fmtFinished(s)}</td>
+        <td>${s.hardWords.length
+          ? s.hardWords.map(w => `${esc(w.word)} ×${w.n}`).join(', ') : '—'}</td>
+      </tr>`).join('');
+
+    // ★ 預設全部收合：老師自行點開要看哪一班。
+    //   （原本第一張自動展開，畫面一進去就是一整片表格，很難掃。）
+    return `
+      <div class="per-asg-card" data-asg="${key}">
+        <div class="per-asg-head" data-toggle="${key}" role="button" tabindex="0"
+             aria-expanded="false"
+             style="cursor:pointer">
+          <span class="per-asg-caret" aria-hidden="true">▸</span>
+          <span class="per-asg-pin">${esc(g.pin)}</span>
+          <div>
+            <div class="per-asg-title">${esc(g.title)}</div>
+            <div class="per-asg-sub">${b.studentCount} students · ${b.wordCount} words · ${b.probes} letters${b.unfinishedCount ? ` · ${b.unfinishedCount} unfinished` : ''} — click to open</div>
+          </div>
+          <div class="per-asg-kpis">
+            <div class="per-asg-kpi"><b>${pct(b.accuracy)}</b>accuracy</div>
+          </div>
+        </div>
+        <div class="per-asg-body">
+          <p class="per-asg-note">Words are sorted hardest first. “Worst positions” is
+            which letter slot students got wrong most often in that word.</p>
+
+          <div class="sub-h">Words — hardest first</div>
+          <div class="tbl-wrap"><table>
+            <tr><th>Word</th><th>Letters</th><th>Accuracy</th><th>Worst positions</th><th>By level</th></tr>
+            ${wordRows || '<tr><td colspan="5">No data</td></tr>'}
+          </table></div>
+
+          <div class="sub-h">Students — highest score first</div>
+          <div class="tbl-wrap"><table>
+            <tr><th>No.</th><th>Name</th><th>Letters</th><th>Accuracy</th><th>Finished</th><th>Words they struggled with</th></tr>
+            ${studentRows || '<tr><td colspan="6">No data</td></tr>'}
+          </table></div>
+
+          <div class="per-asg-actions">
+            <button class="btn-s" data-asgcsv="${key}">⬇ CSV for this assignment</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── Gemini API key（只存localStorage）──
+const geminiKeyEl = document.getElementById('geminiKey');
+const keyStateEl = document.getElementById('keyState');
+const keyHintEl = document.getElementById('keyHint');
+
+function refreshKeyUI() {
+  const k = keyStore.load();
+  geminiKeyEl.value = k;
+  const has = !!k;
+  keyStateEl.textContent = has ? 'key saved' : 'optional';
+  keyStateEl.className = has ? 'pill' : 'pill grey';
+  keyHintEl.textContent = has
+    ? `Saved (${k.slice(0, 6)}…). Only words missing from the library will use it.`
+    : 'No key — PCS will only use the built-in sentence library.';
+}
+refreshKeyUI();
+
+document.getElementById('btnSaveKey').addEventListener('click', () => {
+  const v = geminiKeyEl.value.trim();
+  if (!v) { keyHintEl.textContent = 'Paste a key first (AIza…).'; keyHintEl.style.color = '#B45309'; return; }
+  keyStore.save(v);
+  geminiKeyEl.value = v;
+  refreshKeyUI();
+  keyHintEl.style.color = '#3f6212';
+  showMsg('API key saved in this browser only.', 'success');
+});
+
+document.getElementById('btnClearKey').addEventListener('click', () => {
+  keyStore.clear();
+  geminiKeyEl.value = '';
+  refreshKeyUI();
+  keyHintEl.style.color = 'var(--ink-soft)';
+  showMsg('API key removed.', 'info');
+});
+
+const newPw = document.getElementById('newPw');
+newPw.addEventListener('input', () => {
+  const r = checkPassword(newPw.value);
+  document.querySelectorAll('#pwMeter .pw-bar').forEach((b, i) => {
+    b.style.background = (newPw.value && i < r.score)
+      ? ['#EF4444', '#F59E0B', '#65BE22', '#16A34A'][r.score - 1] : 'var(--line)';
+  });
+  const hint = document.getElementById('pwHint');
+  if (!newPw.value) hint.textContent = '';
+  else if (r.weak) { hint.style.color = '#B45309'; hint.textContent = '⚠️ Very easy to guess'; }
+  else if (!r.ok) { hint.style.color = '#B45309'; hint.textContent = 'Suggestion: ' + r.issues.join(', '); }
+  else { hint.style.color = '#3f6212'; hint.textContent = '✓ Strong enough'; }
+});
+
+document.getElementById('btnChangePw').addEventListener('click', async () => {
+  const cur = document.getElementById('curPw').value;
+  const pw = newPw.value;
+  const pw2 = document.getElementById('newPw2').value;
+
+  if (!cur) return showMsg('Please enter your current password', 'error');
+  if (pw !== pw2) return showMsg('The two new passwords do not match', 'error');
+  if (pw.length < 6) return showMsg('New password must be at least 6 characters', 'error');
+
+  const r1 = await reauthenticate({ password: cur });
+  if (!r1.ok) return showMsg('Current password is not correct: ' + r1.error, 'error');
+
+  const r2 = await changePassword({ newPassword: pw });
+  if (r2.ok) {
+    showMsg('✓ ' + r2.message, 'success');
+    document.getElementById('curPw').value = '';
+    newPw.value = ''; document.getElementById('newPw2').value = '';
+  } else showMsg(r2.error, 'error');
+});
+
+document.getElementById('btnChangeEmail').addEventListener('click', async () => {
+  const email = document.getElementById('newEmail').value.trim();
+  if (!email) return showMsg('Please enter the new email', 'error');
+  const curPw = prompt('Re-enter your current password to confirm:');
+  if (!curPw) return;
+
+  const r1 = await reauthenticate({ password: curPw });
+  if (!r1.ok) return showMsg('Current password is not correct', 'error');
+
+  try {
+    const { auth: a } = await initFirebase({ signIn: false });
+    await a.currentUser.verifyBeforeUpdateEmail(email);
+    showMsg('Verification email sent. Click the link to finish changing your email.', 'success');
+    document.getElementById('newEmail').value = '';
+  } catch (e) {
+    showMsg('Could not change email: ' + e.message, 'error');
+  }
+});
+
+// ══════════════════════════════════════════════
+// Results
+// ══════════════════════════════════════════════
+async function loadData() {
+  const box = document.getElementById('analysisBody');
+  box.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 12px"></div><p>Loading…</p></div>';
+
+  const f = {
+    className: document.getElementById('fClass').value,
+    word: document.getElementById('fWord').value,
+    date: document.getElementById('fDate').value,
+  };
+
+  const pb = document.getElementById('perAsgBox');
+  if (pb) pb.innerHTML = '';
+
+  try {
+    const data = await loadAnalytics(f);
+    // ★ 只保留自己班的作答 —— 否則換帳號會看到別人的班級資料。
+    const ownExposures = filterExposuresToOwnClasses(data.exposures);
+    data.exposures = ownExposures;
+
+    if (!data.exposures.length) {
+      // ★ 空資料不等於「壞了」。要分三種情況講清楚，
+      //   否則老師只會看到一句「No matching answers」而不知從哪查起。
+      showFilterState();
+      const diag = await diagnoseEmpty();
+      const ownsSome = (window.__pcsMyPins?.size ?? 0) > 0;
+      box.innerHTML = `<div class="empty"><div class="big">📭</div>
+        <p>No answers match this filter.</p>
+        <div style="max-width:520px;margin:14px auto 0;text-align:left;font-size:13px;line-height:1.8;color:var(--ink-mid)">
+          <p style="margin:0 0 8px"><b>What I checked for you</b></p>
+          <ul style="margin:0;padding-left:20px">
+            <li>Your account can read <code class="mono">exposures</code>: ${diag.canRead ? 'yes' : '<b style="color:#991B1B">no</b>'}</li>
+            <li>Your assignments: <b>${ownsSome ? [...window.__pcsMyPins].join(', ') : 'none yet'}</b></li>
+            <li>Total documents in <code class="mono">exposures</code>: <b>${diag.totalDocs}</b>${ownsSome ? '' : ' <span style="color:var(--ink-soft)">(all belong to other teachers)</span>'}</li>
+            <li>Teacher profile (<code class="mono">teachers/{uid}</code>): ${diag.hasProfile ? 'present' : '<b style="color:#991B1B">missing</b>'}</li>
+          </ul>
+          <p style="margin:12px 0 0;color:var(--ink-soft)">${ownsSome ? diag.advice : 'Each teacher only sees their own assignments. Students must use the PIN you gave them.'}</p>
+        </div></div>`;
+      return;
+    }
+    box.innerHTML = renderAnalysis(data);
+    populateFilters(data);
+    renderPerAssignmentBox(data.exposures, data.sessions);
+    showFilterState();
+  } catch (e) {
+    console.error(e);
+    const denied = /permission|Missing or insufficient/i.test(e.message || '');
+
+    // ★ 讀不到通常不是「rules 寫錯」，而是這個帳號的 teachers/{uid}
+    //   白名單還沒建好（剛換 Google 帳號最常見）。
+    //   先自動補建並重試一次，再談 rules。
+    if (denied) {
+      box.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 12px"></div>'
+        + '<p>Setting up your teacher access…</p></div>';
+      const fixed = await ensureWhitelist({ force: true });
+      if (fixed) {
+        try {
+          const retry = await loadAnalytics(f);
+          retry.exposures = filterExposuresToOwnClasses(retry.exposures);
+          if (retry.exposures.length) {
+            box.innerHTML = renderAnalysis(retry);
+            populateFilters(retry);
+            renderPerAssignmentBox(retry.exposures, retry.sessions);
+            showMsg('Access fixed. Results loaded.', 'success');
+            return;
+          }
+        } catch (e2) {
+          console.warn('[PCS] retry after whitelist failed', e2?.message);
+        }
+      }
+    }
+
+    box.innerHTML = `<div class="empty"><div class="big">⚠️</div><p>Could not load</p>
+      <p style="font-size:12.5px;margin-top:8px">${escapeHtml(e.message || e)}</p>
+      ${denied ? `<div style="max-width:480px;margin:14px auto 0;text-align:left;font-size:13px;line-height:1.8">
+        <p style="margin:0 0 8px"><b>Almost certainly your teacher profile is missing.</b></p>
+        <p style="margin:0 0 8px;color:var(--ink-soft)">The rules let a teacher read
+        <code class="mono">exposures</code> only when
+        <code class="mono">teachers/{uid}</code> exists. It is created automatically
+        the first time you sign in — if that failed, do it by hand:</p>
+        <ol style="margin:0;padding-left:20px;color:var(--ink-mid)">
+          <li>Firebase Console → Firestore Database → Rules</li>
+          <li>Paste the latest <code class="mono">firestore.rules</code> → Publish</li>
+          <li>Sign out, sign in again, then press Load</li>
+        </ol>
+      </div>` : ''}
+    </div>`;
+  }
+}
+
+/**
+ * 診斷為什麼 Report 是空的。
+ * ★ 學生端寫入失敗時完全沒有提示（遊戲不該被網絡阻塞），
+ *   所以唯一能確認真相的地方就是這裡。
+ */
+async function diagnoseEmpty() {
+  const out = { canRead: false, totalDocs: 0, hasProfile: false, assignmentCount: 0, advice: '' };
+  try {
+    const { db } = await initFirebase({ signIn: false });
+    const { auth: a } = await initFirebase({ signIn: false });
+    const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+
+    try {
+      // ★ 診斷「有沒有資料」時不能用 limit(1) —— 那只會回傳 0 或 1，
+      //   畫面上就會顯示「Total documents: 1」而實際有 21 筆，誤導老師。
+      //   這裡取一個足夠的樣本數量，並用 getCountFromServer 拿真實筆數。
+      const probe = await fs.getDocs(
+        fs.query(fs.collection(db, PCS_CONFIG.collections.exposures), fs.limit(500)));
+      out.canRead = true;
+      out.sampleDocs = probe.size;
+      try {
+        const agg = await fs.getCountFromServer(fs.collection(db, PCS_CONFIG.collections.exposures));
+        out.totalDocs = agg.data().count;
+      } catch {
+        out.totalDocs = probe.size;      // 沒有 aggregation 就用樣本數
+      }
+    } catch { out.canRead = false; }
+
+    try {
+      const p = await fs.getDoc(fs.doc(db, PCS_CONFIG.collections.teachers, a.currentUser?.uid));
+      out.hasProfile = p.exists();
+    } catch { /* ignore */ }
+
+    try {
+      const asg = await fs.getDocs(fs.query(fs.collection(db, PCS_CONFIG.collections.assignments), fs.limit(200)));
+      out.assignmentCount = asg.size;
+      const closed = asg.docs.filter(d => d.data().active === false).length;
+      if (closed) out.closedCount = closed;
+    } catch { /* ignore */ }
+  } catch { /* ignore */ }
+
+  if (!out.canRead) {
+    out.advice = 'Rules are blocking reads. Publish the current firestore.rules, then reload.';
+  } else if (out.totalDocs === 0) {
+    out.advice = out.assignmentCount === 0
+      ? 'No assignments yet — create one on the Assignments tab first.'
+      : 'Rules are fine but nothing has been written yet. Play a full round as a student (Reopen the assignment first if it says Closed), then press Load again.';
+  } else if ((window.__pcsMyPins?.size ?? 0) === 0) {
+    out.advice = 'You have no assignments yet, so there is nothing for you to see. '
+      + 'The data belongs to other teacher accounts. Create your own assignment on the Assignments tab.';
+  } else {
+    // ★ 有資料、也有自己的課程，但篩選後是空的 →
+    //   要嘛是篩選條件不對，要嘛是學生還沒作答。
+    const pins = [...window.__pcsMyPins].join(', ');
+    out.advice = `You have assignments (${pins}) but no answers match this filter. `
+      + 'Press Clear filters, then have a student play a full round with one of your PINs.';
+  }
+  return out;
+}
+
+function populateFilters(data) {
+  const cls = [...new Set(data.exposures.map(x => x.className).filter(Boolean))];
+  const wd = [...new Set(data.exposures.map(x => x.word).filter(Boolean))];
+  const fill = (el, arr, label) => {
+    const cur = el.value;
+    el.innerHTML = `<option value="">${label}</option>` + arr.map(v => `<option value="${v}">${v}</option>`).join('');
+    el.value = cur;
+  };
+  fill(document.getElementById('fClass'), cls, 'All assignments');
+  fill(document.getElementById('fWord'), wd, 'All words');
+}
+
+document.getElementById('btnLoad').addEventListener('click', loadData);
+
+// ── 可收起區塊（Errors by sound pattern / Student results）──
+// ★ 用事件委派綁在 analysisBody 上：這兩張卡片的 HTML 是 renderAnalysis
+//   每次重新產生的，直接綁在元素上會在重新 Load 後失效。
+document.getElementById('analysisBody')?.addEventListener('click', (e) => {
+  const head = e.target.closest('.collapse-head');
+  if (!head) return;
+  const card = head.closest('.card.collapsible');
+  if (!card) return;
+  card.classList.toggle('open');
+  head.setAttribute('aria-expanded', card.classList.contains('open') ? 'true' : 'false');
+});
+// 鍵盤可達（Enter / 空白）
+document.getElementById('analysisBody')?.addEventListener('keydown', (e) => {
+  const head = e.target.closest('.collapse-head');
+  if (!head || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  head.click();
+});
+
+// ★ 一鍵清除所有篩選（篩選一旦不對，老師很難看出是哪一項卡住）
+document.getElementById('btnClearFilters')?.addEventListener('click', () => {
+  for (const id of ['fClass', 'fWord']) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+  const d = document.getElementById('fDate');
+  if (d) d.value = '';
+  loadData();
+});
+
+/** 把目前的篩選條件顯示出來，讓老師知道正在看哪一批 */
+function showFilterState() {
+  const el = document.getElementById('filterState');
+  if (!el) return;
+  const bits = [];
+  const cls = document.getElementById('fClass')?.value;
+  const wd = document.getElementById('fWord')?.value;
+  const dt = document.getElementById('fDate')?.value;
+  if (cls) bits.push(`assignment = ${cls}`);
+  if (wd) bits.push(`word = ${wd}`);
+  if (dt) bits.push(`date = ${dt}`);
+  el.textContent = bits.length
+    ? 'Filtering: ' + bits.join(' · ') + ' — press Clear filters to see everything'
+    : 'Showing everything (no filter).';
+  el.style.color = bits.length ? '#B45309' : 'var(--ink-soft)';
+}
+
+// ── 每個 assignment 卡片：展開/收合 + 個別 CSV ──
+document.getElementById('perAsgBox')?.addEventListener('click', async (e) => {
+  const head = e.target.closest('[data-toggle]');
+  if (head) {
+    const card = head.closest('.per-asg-card');
+    card?.classList.toggle('open');
+    head.setAttribute('aria-expanded', card?.classList.contains('open') ? 'true' : 'false');
+    return;
+  }
+
+  const csvBtn = e.target.closest('[data-asgcsv]');
+  if (csvBtn) {
+    const key = csvBtn.dataset.asgcsv;
+    const all = window.__pcsLastExposures || [];
+    const group = groupByAssignment(all).find(g => g.key === key);
+    if (!group) return;
+    csvBtn.disabled = true;
+    try {
+      // 用同一個匯出程式，只是餵這個 assignment 的資料
+      const rows = [];
+      for (const ex of group.exposures) {
+        for (const p of (ex.probes ?? [])) {
+          rows.push({
+            date: ex.dateKey,
+            pin: group.pin,
+            classTitle: group.title,
+            classNo: ex.classNo,
+            studentName: ex.studentName,
+            word: ex.word,
+            level: ex.level,
+            probeIndex: p.i + 1,
+            expected: p.expect,
+            got: p.got,
+            correct: p.correct ? 1 : 0,
+            ms: p.ms,
+            attemptNo: p.attemptNo,
+            phonClass: p.phonClass,
+            errorCode: p.errorCode ?? '',
+            isRetry: ex.isRetry ? 1 : 0,
+            skipped: ex.skipped ? 1 : 0,
+          });
+        }
+      }
+      if (!rows.length) { alert('No answers for this assignment yet.'); return; }
+      downloadCsvRows(rows, `pcs_${group.pin}_${group.title.replace(/[^\w]+/g, '_').slice(0, 30)}_${new Date().toISOString().slice(0, 10)}.csv`);
+      showMsg(`CSV for PIN ${group.pin} downloaded (${rows.length} rows).`, 'success');
+    } catch (err) {
+      showMsg('CSV failed: ' + friendlyish(err), 'error');
+    } finally {
+      csvBtn.disabled = false;
+    }
+  }
+});
+
+// Enter /空白鍵也能展開
+document.getElementById('perAsgBox')?.addEventListener('keydown', (e) => {
+  const head = e.target.closest('[data-toggle]');
+  if (head && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    const card = head.closest('.per-asg-card');
+    card?.classList.toggle('open');
+    head.setAttribute('aria-expanded', card?.classList.contains('open') ? 'true' : 'false');
+  }
+});
+document.getElementById('btnCsv').addEventListener('click', async () => {
+  const btn = document.getElementById('btnCsv');
+  btn.disabled = true;
+  try {
+    const data = await loadAnalytics({
+      className: document.getElementById('fClass').value,
+      word: document.getElementById('fWord').value,
+      date: document.getElementById('fDate').value,
+    });
+    // ★ 匯出也只匯自己班的 —— 這是論文原始數據，
+    //   匯出別人的班級會污染研究資料。
+    data.exposures = filterExposuresToOwnClasses(data.exposures);
+    if (!data.exposures.length) {
+      showMsg('Nothing to export for your assignments.', 'error');
+      return;
+    }
+    exportCsv(data);
+    showMsg('CSV downloaded. <strong>Repeat this every day</strong> and keep the file locally.', 'success');
+  } catch (e) {
+    showMsg('Export failed: ' + e.message, 'error');
+  } finally { btn.disabled = false; }
+});
+
+// ★ Email 驗證已停用（研究原型不需要）。
+//   保留這段只為了掛上 window.__pcsUser，讓 Account 頁顯示姓名。
+let __pcsUser = null;
+initFirebase({ signIn: false }).then(({ auth: a }) => {
+  a.onAuthStateChanged((u) => {
+    if (!u || __pcsUser) return;
+    __pcsUser = u;
+    window.__pcsTeacher = { uid: u.uid, name: u.displayName || u.email, email: u.email };
+  });
+});
+
+/** HTML 轉義（所有使用者輸入都要經過） */
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+// ══════════════════════════════════════════════
+// Assignments
+// ══════════════════════════════════════════════
+const asgList = document.getElementById('asgList');
+
+/**
+ * 同步查內建句庫（給「Save 時自動新增」用 —— 那裡不能 await）。
+ * 載入後會把查詢函式掛到 window，Save 的流程直接呼叫它。
+ */
+let __pcsSentenceIndex = null;
+(async () => {
+  try {
+    const [{ SENTENCE_BANK }, { PHRASE_BANK }] = await Promise.all([
+      import('./assets/data/sentences.js'),
+      import('./assets/data/phrases.js'),
+    ]);
+    __pcsSentenceIndex = (w) => {
+      const k = String(w).toLowerCase().trim();
+      const single = SENTENCE_BANK[k]?.s;
+      if (single?.length) return single.slice(0, 2);
+      const ph = PHRASE_BANK[k]?.sentences;
+      if (ph?.length) return ph.slice(0, 2);
+      // 去掉冠詞再試一次（a swimming pool → swimming pool）
+      const tail = k.replace(/^(a|an|the)\s+/, '');
+      if (tail !== k) {
+        const t = SENTENCE_BANK[tail]?.s;
+        if (t?.length) return t.slice(0, 2);
+      }
+      return [];
+    };
+    window.__pcsLookupSentence = (w) => __pcsSentenceIndex(w);
+  } catch { window.__pcsLookupSentence = () => []; }
+})();
+const asgResultCard = document.getElementById('asgResultCard');
+const asgCustom = document.getElementById('asgCustom');
+const asgLineCount = document.getElementById('asgLineCount');
+
+document.getElementById('asgPin').addEventListener('input', (e) => {
+  e.target.value = normalisePin(e.target.value).replace(/\D/g, '').slice(0, 4);
+});
+
+/**
+ * 解析「一行一詞」：word, sentence
+ * ★ 分隔符是逗號（半角 , 或全角 ，都可以）。
+ *   不用 | 的原因：老師在小鍵盤上打逗號比打 | 容易，
+ *   而且逗號在視覺上更符合「詞, 例句」的語感。
+ */
+function parseCustomLines(text) {
+  return String(text || '').split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(line => {
+      // 第一個逗號分隔詞與例句；逗號後全部都是例句（例句本身可能有逗號）
+      const m = line.match(/^([^,，]+)[,，]\s*(.*)$/);
+      if (!m) return { word: line, sentences: [], needsSentence: true };
+      const word = m[1].trim();
+      const sentence = m[2].trim();
+      return {
+        word,
+        sentences: sentence ? [sentence] : [],
+        needsSentence: !sentence,   // 標記「老師沒給例句」→ 需要補
+      };
+    })
+    .filter(x => x.word);
+}
+
+/** 即時顯示詞數 */
+function updateLineCount() {
+  const n = parseCustomLines(asgCustom.value).length;
+  asgLineCount.textContent = n === 1 ? '1 word' : `${n} words`;
+  asgLineCount.classList.toggle('warn', n === 0);
+}
+asgCustom.addEventListener('input', updateLineCount);
+
+// ── 只准英數字：擋掉中文漢字與全角符號 ──
+//   ★ 為什麼要擋：這是英文拼字練習題庫，中文進來會讓拼字演算法算不出
+//     pattern，學生端會出現無法拼讀的題目。
+//   ★ 全角逗號（，）是例外 —— parseCustomLines 支援它當「詞, 例句」的分隔符，
+//     所以先把全角逗號轉成半角再過濾，保留分隔功能。
+//   ★ 用 compositionstart/end 避開注音、拼音輸入法的選字過程，
+//     否則在組字中途改 value 會把輸入法打斷。
+const CJK_CHARS = /[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFF01-\uFF5E\uFFE0-\uFFE6]/g;
+
+/** 移除中文字元（回傳過濾後的字串） */
+function stripChinese(text) {
+  return String(text || '')
+    .replace(/\uFF0C/g, ',')     // 全角逗號 → 半角（保留分隔功能）
+    .replace(CJK_CHARS, '');     // 其餘中日韓字元／全角符號 → 移除
+}
+
+/** 綁定「只准英數」的輸入框：輸入或貼上含中文時即時移除，並提示一次。 */
+function wireLatinOnly(el, hint) {
+  if (!el) return;
+  let composing = false;
+  let lastWarn = 0;
+  const clean = () => {
+    const before = el.value;
+    const after = stripChinese(before);
+    if (after === before) return;
+    // 還原游標位置（往前平移被刪掉的字數）
+    const s = el.selectionStart, e = el.selectionEnd;
+    const removedBefore = before.slice(0, s).length - stripChinese(before.slice(0, s)).length;
+    el.value = after;
+    try { el.setSelectionRange(s - removedBefore, e - removedBefore); } catch { /* 忽略 */ }
+    const now = Date.now();
+    if (now - lastWarn > 1500) { lastWarn = now; showMsg(hint, 'info', 2600); }
+  };
+  el.addEventListener('compositionstart', () => { composing = true; });
+  el.addEventListener('compositionend', () => { composing = false; clean(); });
+  el.addEventListener('input', () => { if (!composing) clean(); });
+  el.addEventListener('paste', () => setTimeout(clean, 0));
+}
+wireLatinOnly(asgCustom, 'Chinese characters are not allowed here — English words only.');
+wireLatinOnly(document.getElementById('customPhrases'), 'Chinese characters are not allowed here — English phrases only.');
+
+/** 挑一個沒被用過的 PIN */
+async function pickFreePin() {
+  const used = await listAssignments();
+  const taken = new Set(used.map(a => a.pin));
+  for (let i = 0; i < 40; i++) {
+    const p = makePin();
+    if (!taken.has(p)) return p;
+  }
+  return makePin();
+}
+
+/**
+ * 補上缺少的例句。
+ *
+ * ★ 順序很重要：先查內建句庫（免費、離線、已經人工校對過），
+ *   查不到才呼叫 Gemini。這樣 90% 以上的詞不需要用到 API key。
+ *
+ * @param {Array<{word,sentences,needsSentence}>} words
+ * @param {(msg:string)=>void} onProgress
+ * @returns {Promise<{words:Array, fromBank:number, fromAi:number, failed:number}>}
+ */
+async function fillSentences(words, onProgress) {
+  const out = words.map(w => ({ ...w }));
+  let fromBank = 0, fromAi = 0, failed = 0;
+
+  // ── 步驟 1：查內建句庫 ──
+  // ★ 兩個來源都要查：單詞在 sentences.js，短語在 phrases.js。
+  //   只查 sentencesFor 的話，短語（a bank / a swimming pool）全都會漏掉。
+  const [{ sentencesFor }, { phraseInfo }] = await Promise.all([
+    import('./assets/data/sentences.js'),
+    import('./assets/data/phrases.js'),
+  ]);
+
+  const lookUp = (word) => {
+    const single = sentencesFor(word);
+    if (single && single.length) return single;
+    const info = phraseInfo(word);
+    if (info?.sentences?.length) return info.sentences;
+    // 「a swimming pool」查不到時，試著查最後一個名詞（swimming pool / pool）
+    const tail = word.replace(/^(a|an|the)\s+/i, '');
+    if (tail !== word) {
+      const t = sentencesFor(tail);
+      if (t && t.length) return t;
+    }
+    return [];
+  };
+
+  const needAi = [];
+  for (const w of out) {
+    // ★ 建立課程的當下就把「預設 emoji」與「分類」配好，寫進 assignment。
+    //   以前這裡完全沒配 emoji，於是 assignment item 的 imageEmoji 一律是 null，
+    //   學生端只能退回 category 猜，而 category 也缺席 → 全部當 'place' → 🏠。
+    if (!w.imageEmoji) w.imageEmoji = emojiForWord(w.word);
+    if (!w.category) w.category = categoryForWord(w.word);
+
+    if (w.sentences.length) continue;
+    const hit = lookUp(w.word);
+    if (hit && hit.length) { w.sentences = hit; fromBank++; }
+    else needAi.push(w);
+  }
+  onProgress?.(`Found ${fromBank} sentence${fromBank === 1 ? '' : 's'} in the built-in library.`);
+
+  // ── 步驟 2：剩下的才問 AI ──
+  if (needAi.length) {
+    if (!hasKey()) {
+      failed = needAi.length;
+      onProgress?.(`${needAi.length} word${needAi.length === 1 ? '' : 's'} still need a sentence. Add a Gemini API key in Account, or type the sentence after a comma.`);
+    } else {
+      onProgress?.(`Writing ${needAi.length} sentence${needAi.length === 1 ? '' : 's'} with AI…`);
+      try {
+        const drafts = await generateSentences(needAi.map(w => w.word));
+        const { ok } = qualityCheck(drafts);
+        const map = new Map(ok.map(d => [d.word.toLowerCase(), d.sentence]));
+        for (const w of needAi) {
+          const s = map.get(w.word.toLowerCase());
+          if (s) { w.sentences = [s]; fromAi++; } else { failed++; }
+        }
+        onProgress?.(`AI wrote ${fromAi} sentence${fromAi === 1 ? '' : 's'}.`);
+      } catch (e) {
+        failed = needAi.length;
+        console.warn('[PCS] AI generation failed', e);
+        onProgress?.(`AI could not write the sentences (${e.message}). You can add them by hand later.`);
+      }
+    }
+  }
+
+  return { words: out, fromBank, fromAi, failed };
+}
+
+/**
+ * ★ 寫入課程，被權限擋下時自動補建白名單並重試一次。
+ *
+ * 為什麼需要：剛換 Google 帳號時 teachers/{uid} 還沒建好，
+ * 而 rules 的 teacherOrList() 檢查 exists(teachers/uid) → 所有寫入被擋。
+ * 症狀：按 Create assignment 就跳「Firestore rules blocked this」，
+ * 但使用者會誤以為是 rules 沒貼好。
+ */
+async function writeAssignment(fs, db, docId, payload) {
+  const ref = fs.doc(db, PCS_CONFIG.collections.assignments, docId);
+  try {
+    await fs.setDoc(ref, payload);
+    return true;
+  } catch (e) {
+    const denied = /permission|insufficient/i.test(e.message || '');
+    if (!denied) throw e;
+
+    console.warn('[PCS] 建立課程被拒，嘗試補建白名單後重試');
+    const fixed = await ensureWhitelist({ force: true });
+    if (!fixed) throw e;
+
+    await fs.setDoc(ref, payload);
+    return true;
+  }
+}
+
+document.getElementById('asgCreate').addEventListener('click', async () => {
+  const btn = document.getElementById('asgCreate');
+  const title = document.getElementById('asgTitle').value.trim();
+  const pinInput = document.getElementById('asgPin').value.trim();
+  const className = document.getElementById('asgClass').value.trim();
+
+  if (!title) { showMsg('Give the assignment a name first.', 'error'); document.getElementById('asgTitle').focus(); return; }
+  if (pinInput && !isValidPinFormat(pinInput)) { showMsg('PIN must be exactly 4 digits.', 'error'); return; }
+
+  const words = parseCustomLines(asgCustom.value);
+  if (!words.length) { showMsg('Type at least one word, one per line.', 'error'); asgCustom.focus(); return; }
+
+  btn.disabled = true;
+  const label = btn.querySelector('span');
+  const original = label.textContent;
+
+  try {
+    // ── ★ 2026-10-16：PIN 查重（Bug 3）──
+    //   自動產生時 pickFreePin() 已經避開已用的 PIN，但老師**手填**的沒有查。
+    //   而 Firestore 的文件 ID 就是 `pin_XXXX`，setDoc 會直接覆蓋 →
+    //   舊課程的詞條無聲消失，學生輸舊 PIN 看到的是新課程。
+    //   所以手填也要查一次，撞了就直接講清楚，不要靜默覆蓋。
+    if (pinInput) {
+      const used = await listAssignments();
+      const clash = used.find(a => String(a.pin) === pinInput);
+      if (clash) {
+        showMsg(`PIN ${pinInput} is already used by “${clash.title}”. `
+          + 'Pick another PIN, or leave it blank to generate a free one.', 'error', 9000);
+        document.getElementById('asgPin').focus();
+        return;
+      }
+    }
+
+    // ── 先把缺的例句補齊，再寫入 Firestore ──
+    label.textContent = 'Preparing sentences…';
+    const filled = await fillSentences(words, (m) => { label.textContent = m; });
+
+    label.textContent = 'Creating…';
+    const pin = pinInput || await pickFreePin();
+    const doc = buildAssignment({
+      title, phase: 'practice', pin,
+      // ★ 班別（Bug 2）：供後台 Results 篩選；排名本身改按 PIN 分組
+      className,
+      teacherId: window.__pcsTeacher?.uid ?? null,
+      teacherName: window.__pcsTeacher?.name ?? null,
+      words: filled.words,
+      // ★ Advanced mode（整詞自行填寫的考試模式），預設關閉
+      advanced: !!document.getElementById('asgAdvanced')?.checked,
+    });
+
+    const { db } = await initFirebase({ signIn: false });
+    const fs = await import(
+      './assets/vendor/firebase/firebase-firestore.js'
+    );
+    await writeAssignment(fs, db, assignmentDocId(pin), {
+      ...doc,
+      createdAt: fs.serverTimestamp(),
+    });
+
+    // ── 順便把新造到的例句寫回詞庫，下次就不用再問 AI ──
+    if (filled.fromAi > 0) saveToWordBank(filled.words).catch(() => {});
+
+    const bits = [`Assignment created. PIN is ${pin}.`];
+    if (filled.fromBank) bits.push(`${filled.fromBank} from the library`);
+    if (filled.fromAi) bits.push(`${filled.fromAi} written by AI`);
+    if (filled.failed) bits.push(`${filled.failed} still need a sentence`);
+    showMsg(bits.join(' · '), filled.failed ? 'info' : 'success', 5000);
+
+    showDispatch(doc);
+    await loadAssignmentList();
+
+    asgCustom.value = '';
+    updateLineCount();
+    // ★ 班別保留不清空 —— 老師通常連續建同一班的幾份作業，
+    //   每次重打很煩。PIN 欄也一樣（原本就沒清）。
+  } catch (e) {
+    console.error(e);
+    const denied = /permission|insufficient/i.test(e.message || '');
+    if (denied) {
+      // ★ 不要第一時間就說「rules 沒貼」。先查自己的白名單。
+      //   實測發現最常見的原因是換帳號後 teachers/{uid} 沒建好，
+      //   而不是 rules 有錯 —— 直接怪 rules 會讓人白跑一趟 Console。
+      await ensureWhitelist({ force: true });
+      showMsg('Blocked by the Security Rules. Your teacher profile was also re-created — '
+        + 'if this keeps happening, publish the latest firestore.rules, then sign out and back in.', 'error', 12000);
+    } else {
+      showMsg(`Could not create the assignment: ${friendlyish(e)}`, 'error', 6000);
+    }
+  } finally {
+    btn.disabled = false;
+    label.textContent = original;
+  }
+});
+
+/** 把新造到的例句寫回 words collection（下次建課程時可直接用） */
+async function saveToWordBank(words) {
+  const { db } = await initFirebase({ signIn: false });
+  const fs = await import(
+    './assets/vendor/firebase/firebase-firestore.js'
+  );
+  const batch = fs.writeBatch(db);
+  let n = 0;
+  for (const w of words) {
+    if (!w.sentences?.length) continue;
+    const id = 'w_' + String(w.word).replace(/\s+/g, '_');
+    batch.set(fs.doc(db, PCS_CONFIG.collections.words, id), {
+      wordId: id,
+      word: w.word,
+      sentences: w.sentences,
+      // ★ 詞庫也順便存預設 emoji / 分類，學生端就不必再猜
+      imageEmoji: w.imageEmoji || emojiForWord(w.word),
+      category: w.category || categoryForWord(w.word),
+      source: 'ai',
+      updatedAt: fs.serverTimestamp(),
+    }, { merge: true });
+    n++;
+  }
+  if (n) await batch.commit();
+  return n;
+}
+
+function friendlyish(e) {
+  const c = e?.code || '';
+  if (c.includes('permission-denied')) return 'Firestore rules blocked this. Did you publish firestore.rules?';
+  return e?.message || 'unknown error';
+}
+
+function showDispatch(a) {
+  asgResultCard.hidden = false;
+  asgResultCard.style.display = '';
+  const url = joinUrl(a.pin);
+  document.getElementById('dpPin').textContent = a.pin;
+  document.getElementById('dpTitle').textContent = a.title;
+  document.getElementById('dpWords').textContent = a.items.map(i => i.word).join(' · ');
+  document.getElementById('dpUrl').value = url;
+  document.getElementById('dpSite').textContent = location.origin + '/';
+  asgResultCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/* ══ 大 PIN 投影彈窗 ══ */
+const pinBigEl = {
+  Backdrop: document.getElementById('pinBigBackdrop'),
+  Card:     document.getElementById('pinBigCard'),
+  Num:      document.getElementById('pinBigNum'),
+  Sub:      document.getElementById('pinBigSub'),
+};
+
+function openPinModal(pin, title) {
+  pinBigEl.Num.textContent = pin;
+  pinBigEl.Sub.textContent = title
+    ? `Students type this on the join screen for “${title}”.`
+    : 'Students type this on the join screen.';
+  pinBigEl.Backdrop.hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+function closePinModal() {
+  pinBigEl.Backdrop.hidden = true;
+  document.body.style.overflow = '';
+}
+// 點背景關閉 / 按鈕關閉
+pinBigEl.Backdrop.addEventListener('mousedown', (e) => {
+  if (e.target === pinBigEl.Backdrop) closePinModal();
+});
+document.getElementById('pinBigClose').addEventListener('click', closePinModal);
+document.getElementById('pinBigDone').addEventListener('click', closePinModal);
+// Esc 關閉
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !pinBigEl.Backdrop.hidden) closePinModal();
+}, true);
+
+document.getElementById('dpCopy').addEventListener('click', async () => {
+  const el = document.getElementById('dpUrl');
+  try {
+    await navigator.clipboard.writeText(el.value);
+    showMsg('Link copied.');
+  } catch {
+    el.select();
+    showMsg('Press Ctrl/Cmd + C to copy the selected link.');
+  }
+});
+
+/**
+ * ★ 確保 teachers/{uid} 白名單存在，否則所有寫入都會被 rules 擋下來。
+ *
+ * 為什麼需要這個：firestore.rules 的 teacherOrList() 檢查
+ * exists(teachers/{uid})。剛用新 Google 帳號登入時這份文件還不存在，
+ * 閘門雖然嘗試建立，但如果那一步失敗（網路、rules 剛改、Email 驗證狀態），
+ * 之後每一個 write 都會得到 permission-denied —— 症狀就是
+ * 「Could not save: Firestore rules blocked this」。
+ *
+ * 所以：任何寫入失敗時都呼叫這裡補建，再重試一次。
+ */
+let __wlPromise = null;
+async function ensureWhitelist({ force = false } = {}) {
+  const u = window.__pcsTeacher;
+  if (!u?.uid) return false;
+  if (__wlPromise && !force) return __wlPromise;
+
+  __wlPromise = (async () => {
+    try {
+      const { db, auth } = await initFirebase({ signIn: false });
+      const fs = await import(
+        './assets/vendor/firebase/firebase-firestore.js'
+      );
+      const ref = fs.doc(db, PCS_CONFIG.collections.teachers, u.uid);
+      const snap = await fs.getDoc(ref);
+
+      // ★ 不只是「有沒有」，還要檢查 role 是不是 teacher。
+      //   若 profile 存在但 role 被寫成別的值（例如舊版程式碼寫錯），
+      //   只看 exists() 會誤判為「正常」→ 後續所有寫入仍被 rules 擋住。
+      //   這裡強制修正 role，讓帳號能自我修復。
+      if (snap.exists() && snap.data()?.role === 'teacher') return true;
+
+      await fs.setDoc(ref, {
+        ...(snap.exists() ? snap.data() : {}),
+        uid: u.uid,
+        email: u.email ?? auth.currentUser?.email ?? null,
+        displayName: u.name ?? u.email ?? 'Teacher',
+        photoURL: auth.currentUser?.photoURL ?? null,
+        method: (auth.currentUser?.providerData?.[0]?.providerId === 'google') ? 'google' : 'password',
+        role: 'teacher',              // ★ rules 的 teacherOrList() 靠這個
+        createdAt: snap.exists() ? snap.data().createdAt ?? fs.serverTimestamp() : fs.serverTimestamp(),
+        lastLoginAt: fs.serverTimestamp(),
+      });
+      console.log('[PCS] 已補建/修復 teachers/' + u.uid);
+      return true;
+    } catch (e) {
+      console.warn('[PCS] 建立白名單失敗', e?.message);
+      return false;
+    } finally {
+      __wlPromise = null;
+    }
+  })();
+
+  return __wlPromise;
+}
+
+// ★ 掛到 window 才能在 console 實測（也是我每次驗證用來確認有沒有載到新版）
+window.__pcsEnsureWhitelist = ensureWhitelist;
+window.__pcsDiagnose = diagnoseEmpty;
+
+/** 讀全部課程（不做篩選 —— 選 PIN 時要避開所有已用的號碼） */
+async function listAssignments() {
+  try {
+    const { db } = await initFirebase({ signIn: false });
+    const fs = await import(
+      './assets/vendor/firebase/firebase-firestore.js'
+    );
+    const snap = await fs.getDocs(fs.collection(db, PCS_CONFIG.collections.assignments));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    console.warn('[PCS] listAssignments failed', e?.message);
+    return [];
+  }
+}
+
+/**
+ * ★ 只顯示「這個老師帳號」的課程。
+ *
+ *  為什麼要篩：assignments 是以 PIN 當 document id（pin_1234），
+ *  而 students 又必須能公開讀取，所以整個 collection 對所有人可讀。
+ *  如果老師端不篩，換一個 Google 帳號登入就會看到別人的課程 —— 這不是
+ *  登入沒生效，而是資料本來就共用。
+ *
+ *  ★ 舊課程（建立時 teacherId 還是 null）另外放進「未連結」區，
+ *   可以一鍵認領，避免辛苦建的課程消失。
+ */
+async function loadAssignmentList() {
+  const all = await listAssignments();
+  const myUid = window.__pcsTeacher?.uid ?? null;
+
+  // ★★★ 這是「換 Google 帳號還是看到別人的課程」的根因修正。
+  //
+  //   assignments 以 PIN 當 document id（學生端必須能公開讀取），
+  //   所以整個 collection 對所有人可讀 —— rules 收不緊，
+  //   否則學生就進不了課程。歸屬**必須**在前端做。
+  //
+  //   ★★★ 關鍵：原本的寫法 `!a.teacherId || a.teacherId !== myUid`
+  //      把「別的老師帳號建的課程」也算進「可認領」區，
+  //      所以換 Google 帳號後照樣看得到別人的東西。
+  //      正確分類只有三種：
+  //        mine    = teacherId === 我的 uid
+  //        orphans = 沒有 teacherId（很舊的資料）
+  //        others  = 有 teacherId 但不是我 → 完全不顯示、不給認領
+  const mine = myUid ? all.filter(a => a.teacherId && a.teacherId === myUid) : [];
+  const orphans = all.filter(a => !a.teacherId);
+  const others = all.filter(a => a.teacherId && a.teacherId !== myUid);
+
+  if (others.length) {
+    console.warn(`[PCS] ${others.length} 個課程屬於其他老師帳號，已隱藏。`);
+  }
+
+  // ★ 標題對照表也只收「我的 + 無主」，否則 Results 分組會帶出別人的課程名。
+  window.__pcsAsgTitles = {};
+  window.__pcsMyPins = new Set();
+  window.__pcsAsgCreatedAt = {};
+  window.__pcsAsgWordCount = {};
+  for (const a of [...mine, ...orphans]) {
+    if (a.pin) window.__pcsMyPins.add(String(a.pin));
+    if (a.id && a.title) window.__pcsAsgTitles[a.id] = a.title;
+    if (a.pin && a.title) window.__pcsAsgTitles[`pin_${a.pin}`] = a.title;
+    // ★ 建立時間 → Results 卡片依日期排序（「新的排上面」）
+    const created = (a.createdAt?.seconds ?? 0) * 1000;
+    if (a.id && created) window.__pcsAsgCreatedAt[a.id] = created;
+    if (a.pin && created) window.__pcsAsgCreatedAt[`pin_${a.pin}`] = created;
+    // ★ 課程詞數 → 判斷學生是否做到一半（碰過的詞 < 總詞數 = 未完成）
+    const wc = (a.items || []).length;
+    if (a.id && wc) window.__pcsAsgWordCount[a.id] = wc;
+    if (a.pin && wc) window.__pcsAsgWordCount[`pin_${a.pin}`] = wc;
+  }
+
+  const total = all.length;
+  document.getElementById('asgCount').textContent =
+    `${mine.length} assignment${mine.length === 1 ? '' : 's'}`;
+
+  const panel = asgList;
+  if (!mine.length) {
+    panel.innerHTML = orphans.length
+      ? `<p class="empty">You have no assignments yet. Create one above.</p>`
+      : `<p class="empty">No assignments yet. Create one above.</p>`;
+  } else {
+    panel.innerHTML = renderAsgList(mine);
+  }
+
+  // ── 未連結的課程（teacherId 為空＝建立時還沒登入）──
+  const legacyBox = document.getElementById('legacyBox');
+  if (orphans.length) {
+    legacyBox.hidden = false;
+    document.getElementById('legacyCount').textContent =
+      `${orphans.length} assignment${orphans.length === 1 ? '' : 's'}`;
+    document.getElementById('legacyList').innerHTML = renderAsgList(orphans, true);
+  } else {
+    legacyBox.hidden = true;
+    legacyBox.style.display = 'none';
+    document.getElementById('legacyList').innerHTML = '';
+  }
+}
+
+/**
+ * ★ 圖片欄位（給每個詞配圖）。
+ *
+ * 三種方式，都很簡潔：
+ *   · 點一下 → 開檔案選單
+ *   · 拖放   → 把圖片拖到這一欄
+ *   · 貼上   → 在這一欄按 Ctrl/⌘ + V
+ *
+ * 圖片存在 item.imageDataUrl（data URL）。學生端 play.html 優先用這張，
+ * 沒有才退回 emoji / 灰色佔位。
+ */
+function renderImageSlot(item, ix, disabled = false, isNew = false) {
+  const url = item?.imageDataUrl || '';
+  const role = isNew ? 'newImage' : 'image';
+  return `
+    <span class="aiw-img${url ? ' has' : ''}" data-role="${role}" data-ix="${ix}"
+          ${disabled ? 'data-disabled="1"' : ''}>
+      <input type="file" accept="image/*" hidden data-imgfile="${ix}" ${disabled ? 'disabled' : ''}>
+      ${url
+        ? `<img src="${escapeHtml(url)}" alt="">
+           <button type="button" class="aiw-imgx" data-act="imgdel" data-ix="${ix}"
+                   title="Remove picture" ${disabled ? 'disabled' : ''}>×</button>`
+        : `<span class="aiw-imgi" aria-hidden="true">📷</span>`}
+    </span>`;
+}
+
+/**
+ * 課程列表 HTML。
+ * @param {boolean} legacy  true = 未連結區（多一個 Claim 按鈕）
+ */
+function renderAsgList(list, legacy = false) {
+  // ★ 最新的課程排上面（原本就已經是 descending，這裡加註意圖避免日後被改掉）
+  const sorted = list.slice().sort((x, y) => (y.createdAt?.seconds ?? 0) - (x.createdAt?.seconds ?? 0));
+
+  return sorted.map(a => {
+    const items = a.items || [];
+    const noSentence = items.filter(x => !x.sentences?.length).length;
+    // ★ 出題模式標籤：advanced 的課程是「整詞自行填寫」（Whole word spelling）。
+    //   a.mode === 'dictation' 是同一件事的另一個欄位（舊文件可能只有其中一個），
+    //   兩者任一成立就標成 whole，避免舊資料顯示錯誤。
+    const isWhole = a.advanced === true || a.mode === 'dictation';
+    // ★ 只在「勾選了 Spell the whole word」的課程顯示標籤；
+    //   其餘（Normal 模式）不標，畫面更乾淨、也與老師要求一致。
+    const modeBadge = isWhole
+      ? '<span class="ai-mode whole" title="Students spell every letter themselves">Spell the whole word</span>'
+      : '';
+    return `
+    <div class="asg-item" data-id="${escapeHtml(a.id)}" data-pin="${escapeHtml(a.pin)}">
+      <div class="ai-main">
+        <span class="ai-pin">${escapeHtml(a.pin)}</span>
+        <div>
+          <p class="ai-title" data-name="${escapeHtml(a.title)}">${escapeHtml(a.title)}${modeBadge}</p>
+          <p class="ai-meta">${items.length} words${noSentence ? ` · ${noSentence} without a sentence` : ''}${
+            legacy ? ` · by ${escapeHtml(a.teacherName || 'an earlier account')}` : ''
+          }</p>
+        </div>
+      </div>
+      <div class="ai-actions">
+        ${legacy ? `<button class="btn-s" data-act="claim">Claim</button>` : ''}
+        <button class="btn-s" data-act="words" data-count="${items.length}">Edit (${items.length})</button>
+        <button class="btn-s" data-act="show">Show PIN</button>
+        <button class="btn-s" data-act="copy">Copy link</button>
+        <button class="btn-s ${a.active === false ? '' : 'danger'}" data-act="toggle">
+          ${a.active === false ? 'Reopen' : 'Close'}
+        </button>
+        <button class="btn-s danger" data-act="del">Delete</button>
+      </div>
+      <div class="ai-words" hidden>
+        <label class="adv-toggle" for="advEdit-${escapeHtml(a.id)}">
+          <input type="checkbox" id="advEdit-${escapeHtml(a.id)}"
+                 data-role="advmode" data-id="${escapeHtml(a.id)}" ${a.advanced ? 'checked' : ''}>
+          <span class="adv-box" aria-hidden="true"></span>
+          <span class="adv-text">Spell the whole word</span>
+        </label>
+        ${items.map((it, ix) => `
+          <div class="aiw-row" data-ix="${ix}">
+            <span class="aiw-word" data-role="word">${escapeHtml(it.word)}</span>
+            <input class="aiw-wordedit" type="text" maxlength="40" data-ix="${ix}" data-role="wordedit"
+                   value="${escapeHtml(it.word)}" aria-label="Word"
+                   ${a.active === false ? 'disabled' : ''}>
+            ${renderImageSlot(it, ix, a.active === false)}
+            <input class="aiw-input${it.sentences?.length ? '' : ' missing'}"
+                   type="text" maxlength="120" data-ix="${ix}" data-role="sent"
+                   value="${escapeHtml(it.sentences?.[0] || '')}"
+                   placeholder="No sentence yet"
+                   ${a.active === false ? 'disabled' : ''}>
+            <button class="aiw-del" data-act="delword" data-ix="${ix}"
+                    title="Remove this word" ${a.active === false ? 'disabled' : ''}>×</button>
+          </div>`).join('')}
+
+        <div class="aiw-row aiw-new">
+          <span class="aiw-word aiw-plus" aria-hidden="true">＋</span>
+          <input class="aiw-wordedit" type="text" data-role="newWord" maxlength="40"
+                 placeholder="word" aria-label="New word"
+                 ${a.active === false ? 'disabled' : ''}>
+            ${renderImageSlot(null, items.length, a.active === false, true)}
+          <input class="aiw-input" type="text" data-role="newSent" data-ix="${items.length}"
+                 placeholder="Add another word…" maxlength="120"
+                 ${a.active === false ? 'disabled' : ''}>
+          <button class="aiw-add" data-act="addword"
+                  ${a.active === false ? 'disabled' : ''}>Add</button>
+        </div>
+
+        <p class="aiw-saved" hidden>Saved</p>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/**
+ * 自動儲存例句。
+ * ★ 需求：老師一邊打字一邊就存，不需要再按一次。
+ *   用 800ms debounce —— 輸入停止後才寫入，避免每敲一個字就打一次 API。
+ *   updateDoc 只更新 items 陣列裡的該筆，不動其他欄位。
+ */
+const saveTimers = new WeakMap();
+
+async function saveSentence(row, ix, value) {
+  const id = row.closest('.asg-item').dataset.id;
+  const { db } = await initFirebase({ signIn: false });
+  const fs = await import(
+    './assets/vendor/firebase/firebase-firestore.js'
+  );
+  const ref = fs.doc(db, PCS_CONFIG.collections.assignments, id);
+
+  // 讀 → 改該筆 → 寫回（ArrayUnion 不可用，因為要改既有元素）
+  const snap = await fs.getDoc(ref);
+  if (!snap.exists()) throw new Error('Assignment not found');
+  const items = (snap.data().items || []).slice();
+  if (!items[ix]) throw new Error('Word not found');
+
+  items[ix] = { ...items[ix], sentences: value ? [value] : [] };
+  await fs.updateDoc(ref, { items });
+  return items[ix];
+}
+
+function flashSaved(row, ok = true) {
+  const tag = row.querySelector('.aiw-saved');
+  if (!tag) return;
+  tag.textContent = ok ? 'Saved' : 'Not saved';
+  tag.classList.toggle('bad', !ok);
+  tag.hidden = false;
+  clearTimeout(tag.__t);
+  tag.__t = setTimeout(() => { tag.hidden = true; }, 1800);
+}
+
+// ★ 三個監聽器綁在 document 上，不是 asgList。
+//   「未連結的課程」區塊 (#legacyList) 是 asgList 的兄弟節點，
+//   綁在 asgList 上的話那邊的按鈕完全沒有反應（Claim 沒反應就是這個原因）。
+const asgRoot = document.getElementById('asgList').parentElement;
+
+// 編輯中：停止輸入 800ms 後自動寫入
+asgRoot.addEventListener('input', (e) => {
+  const inp = e.target.closest('.aiw-input');
+  if (!inp) return;
+  const row = inp.closest('.aiw-row');
+  inp.classList.toggle('missing', !inp.value.trim());
+
+  clearTimeout(saveTimers.get(inp));
+  saveTimers.set(inp, setTimeout(async () => {
+    try {
+      await saveSentence(row, Number(inp.dataset.ix), inp.value.trim());
+      // 「N without a sentence」計數要跟著更新
+      const panel = row.closest('.ai-words');
+      const miss = [...panel.querySelectorAll('.aiw-input')].filter(x => !x.value.trim()).length;
+      const meta = row.closest('.asg-item').querySelector('.ai-meta');
+      const total = panel.querySelectorAll('.aiw-input').length;
+      meta.textContent = `${total} words` + (miss ? ` · ${miss} without a sentence` : '');
+      flashSaved(row, true);
+    } catch (err) {
+      console.warn('[PCS] saveSentence failed', err?.message);
+      flashSaved(row, false);
+    }
+  }, 800));
+});
+
+// ══════════════════════════════════════════════
+// ★ 圖片：拖放 / Ctrl+V 貼上 / 點選檔案
+//
+// 三種方式共用同一個套用流程（applyImageToRow），
+// 差別只在「圖片從哪裡來」。
+// ══════════════════════════════════════════════
+
+/** 把某個 row 的圖片換掉並存檔 */
+async function commitRowImage(row, dataUrl) {
+  const slot = row.querySelector('.aiw-img');
+  if (!slot) return;
+
+  if (dataUrl) {
+    slot.classList.add('has');
+    slot.innerHTML = `<img src="${escapeHtml(dataUrl)}" alt="">
+      <button type="button" class="aiw-imgx" data-act="imgdel" data-ix="${slot.dataset.ix}"
+              title="Remove picture">×</button>`;
+  } else {
+    slot.classList.remove('has');
+    slot.innerHTML = `<input type="file" accept="image/*" hidden data-imgfile="${slot.dataset.ix}">
+                      <span class="aiw-imgi" aria-hidden="true">📷</span>`;
+  }
+
+  // ★ 新詞那一列還沒進 items 陣列（index = items.length），
+  //   寫入會落在不存在的索引 → 交給 Add 流程一併建立，這裡只更新畫面。
+  const isNew = row.classList.contains('aiw-new');
+  if (!isNew) await saveImage(row, Number(slot.dataset.ix), dataUrl);
+  flashSaved(row, true);
+}
+
+/** 從 File 直接套用（拖放 / 在列上直接貼上） */
+async function applyImageToRow(row, file) {
+  const slot = row.querySelector('.aiw-img');
+  if (!slot || slot.dataset.disabled) return;
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    await commitRowImage(row, dataUrl);
+    showMsg('Picture added.', 'success', 2000);
+  } catch (e) {
+    console.warn('[PCS] image failed', e);
+    showMsg('Could not use that picture: ' + (e.message || e), 'error', 4000);
+  }
+}
+
+// ══════════════════════════════════════════════
+// ★★ 圖片選擇彈窗
+//
+// 為什麼要做成彈窗（而不是點一下就跳系統檔案選單）：
+//   老師最常用的來源是「從網頁或簡報複製圖片」，那條路是 ⌘V，
+//   但系統檔案選單裡沒有「貼上」這個選項 —— 老師根本不會知道可以貼。
+//   彈窗把三個入口寫在同一個方框上，方框本身可聚焦 → ⌘V 一定接得到。
+// ══════════════════════════════════════════════
+const imgm = {
+  row: null, ix: -1, isNew: false,
+  dataUrl: null,        // 壓縮後（準備寫入）的圖
+  savedUrl: null,       // 開啟時已有的圖（用來判斷有沒有改動）
+  busy: false,
+};
+
+const imgmEl = {};
+function cacheImgmEls() {
+  ['Backdrop','Card','Drop','Empty','Fig','Img','Meta','Busy','Remove','Cancel','Save','File','Word']
+    .forEach(k => { imgmEl[k] = document.getElementById('imgm' + k); });
+}
+
+function imgmIsOpen() { return !!imgm.row; }
+
+function openImagePicker(row) {
+  if (!imgmEl.Backdrop) cacheImgmEls();
+  const slot = row?.querySelector('.aiw-img');
+  if (!slot || slot.dataset.disabled) return;
+
+  imgm.row = row;
+  imgm.ix = Number(slot.dataset.ix);
+  imgm.isNew = row.classList.contains('aiw-new');
+  imgm.savedUrl = slot.querySelector('img')?.getAttribute('src') || null;
+  imgm.dataUrl = imgm.savedUrl;
+
+  // 詞名：新詞列優先讀輸入框（老師可能正在打字）
+  const word = imgm.isNew
+    ? (row.querySelector('[data-role=newWord]')?.value || '').trim() || 'new word'
+    : row.querySelector('[data-role=word]')?.textContent?.trim() || 'this word';
+  imgmEl.Word.textContent = word;
+
+  imgmEl.Remove.hidden = !imgm.savedUrl;
+  imgmEl.Remove.disabled = false;
+  paintImagePicker();
+
+  imgmEl.Backdrop.hidden = false;
+  document.body.style.overflow = 'hidden';
+  // 焦點放在方框上 → ⌘V 直接生效，不用先用滑鼠點一下
+  setTimeout(() => imgmEl.Drop?.focus(), 30);
+}
+
+function closeImagePicker() {
+  if (!imgmEl.Backdrop) cacheImgmEls();
+  imgmEl.Backdrop.hidden = true;
+  document.body.style.overflow = '';
+  imgm.row = null; imgm.dataUrl = null; imgm.savedUrl = null; imgm.busy = false;
+}
+
+/** 依目前狀態重畫彈窗內容 */
+function paintImagePicker() {
+  const has = !!imgm.dataUrl;
+  imgmEl.Drop.classList.toggle('has-img', has);
+  imgmEl.Empty.hidden = has;
+  imgmEl.Fig.hidden = !has;
+  imgmEl.Busy.hidden = !imgm.busy;
+  imgmEl.Drop.classList.remove('is-over');
+
+  if (has) {
+    imgmEl.Img.src = imgm.dataUrl;
+    imgmEl.Meta.innerHTML = imgm.metaHtml || '';
+  }
+  imgmEl.Save.disabled = imgm.busy || !imgm.dataUrl || imgm.dataUrl === imgm.savedUrl;
+  imgmEl.Save.textContent = imgm.savedUrl ? 'Replace picture' : 'Use this picture';
+  imgmEl.Remove.hidden = !imgm.savedUrl;
+  imgmEl.Remove.disabled = imgm.busy;
+}
+
+/** 顯示「壓縮前 → 壓縮後」的實際數字，讓老師知道圖被處理過 */
+function describeCompression(origBytes, dataUrl) {
+  const kb = b => b < 1024 ? b + ' B' : (b / 1024).toFixed(b < 10240 ? 1 : 0) + ' KB';
+  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  const outBytes = Math.round(b64.length * 0.75);
+  const saved = origBytes > 0 ? Math.max(0, Math.round((1 - outBytes / origBytes) * 100)) : 0;
+  const dims = imgmEl.Img.naturalWidth ? `${imgmEl.Img.naturalWidth} × ${imgmEl.Img.naturalHeight}` : '';
+  return `${dims ? dims + ' · ' : ''}${kb(outBytes)}`
+    + (saved > 2 ? ` <b>↓ ${saved}% smaller</b> (was ${kb(origBytes)})` : '');
+}
+
+/** 收到一張圖（三個入口共用）：壓縮 → 預覽 → 等老師按「Use this picture」 */
+async function imgmTakeFile(file) {
+  if (!file || !imgm.row) return;
+  if (!file.type?.startsWith('image/')) {
+    showMsg('That file is not a picture.', 'error', 3000);
+    return;
+  }
+  imgm.busy = true;
+  imgmEl.Fig.hidden = true;
+  imgmEl.Empty.hidden = true;
+  imgmEl.Busy.hidden = false;
+  imgmEl.Save.disabled = true;
+
+  try {
+    const dataUrl = await fileToDataUrl(file);          // ★ 壓縮在這裡發生
+    // 等圖片載入完才能量到壓縮後的實際尺寸
+    await new Promise(res => {
+      imgmEl.Img.onload = res;
+      imgmEl.Img.onerror = res;
+      imgmEl.Img.src = dataUrl;
+    });
+    imgm.dataUrl = dataUrl;
+    imgm.metaHtml = describeCompression(file.size || 0, dataUrl);
+  } catch (e) {
+    console.warn('[PCS] image failed', e);
+    imgm.dataUrl = imgm.savedUrl;
+    showMsg('Could not use that picture: ' + (e.message || e), 'error', 4000);
+  } finally {
+    imgm.busy = false;
+    paintImagePicker();
+  }
+}
+
+async function imgmSave() {
+  if (!imgm.row || !imgm.dataUrl || imgm.busy) return;
+  const row = imgm.row, url = imgm.dataUrl;
+  closeImagePicker();
+  try {
+    await commitRowImage(row, url);
+    showMsg('Picture saved.', 'success', 2000);
+  } catch (e) {
+    console.warn('[PCS] save image failed', e);
+    showMsg('Could not save the picture. Try again.', 'error', 4000);
+  }
+}
+
+async function imgmRemove() {
+  if (!imgm.row) return;
+  const row = imgm.row;
+  closeImagePicker();
+  try {
+    await commitRowImage(row, null);
+    showMsg('Picture removed.', 'success', 2000);
+  } catch (e) {
+    showMsg('Could not remove the picture.', 'error', 4000);
+  }
+}
+
+function wireImagePicker() {
+  cacheImgmEls();
+  if (!imgmEl.Backdrop) return;
+
+  // 點方框 = 開系統檔案選單
+  imgmEl.Drop.addEventListener('click', () => imgmEl.File.click());
+  imgmEl.Drop.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); imgmEl.File.click(); }
+  });
+
+  imgmEl.File.addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (f) imgmTakeFile(f);
+  });
+
+  // 拖放
+  ['dragenter', 'dragover'].forEach(ev => imgmEl.Drop.addEventListener(ev, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    imgmEl.Drop.classList.add('is-over');
+  }));
+  imgmEl.Drop.addEventListener('dragleave', () => imgmEl.Drop.classList.remove('is-over'));
+  imgmEl.Drop.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    imgmEl.Drop.classList.remove('is-over');
+    const f = imageFromDrop(e);
+    if (f) imgmTakeFile(f);
+    else showMsg('Drop a PNG / JPG picture.', 'error', 3000);
+  });
+
+  imgmEl.Cancel.addEventListener('click', closeImagePicker);
+  imgmEl.Save.addEventListener('click', imgmSave);
+  imgmEl.Remove.addEventListener('click', imgmRemove);
+
+  // 點背景關閉（點卡片本身不關）
+  imgmEl.Backdrop.addEventListener('mousedown', (e) => {
+    if (e.target === imgmEl.Backdrop) closeImagePicker();
+  });
+
+  // Esc 關閉、Enter 儲存
+  document.addEventListener('keydown', (e) => {
+    if (!imgmIsOpen()) return;
+    if (e.key === 'Escape') { e.stopPropagation(); closeImagePicker(); }
+    if (e.key === 'Enter' && !imgmEl.Save.disabled) { e.preventDefault(); imgmSave(); }
+  }, true);
+
+  // ★ 彈窗開著時的 ⌘V：直接貼進彈窗（優先於列上的貼上邏輯）
+  document.addEventListener('paste', (e) => {
+    if (!imgmIsOpen()) return;
+    const f = imageFromClipboard(e);
+    if (!f) return;                 // 純文字 → 不攔截
+    e.preventDefault();
+    e.stopPropagation();
+    imgmTakeFile(f);
+  }, true);
+}
+
+wireImagePicker();
+
+// ── 點一下：開圖片彈窗 ──
+asgRoot.addEventListener('click', (e) => {
+  const x = e.target.closest('.aiw-imgx');
+  if (x) { e.preventDefault(); openImagePicker(x.closest('.aiw-row')); return; }
+  const slot = e.target.closest('.aiw-img');
+  if (slot && !slot.dataset.disabled) openImagePicker(slot.closest('.aiw-row'));
+});
+
+/** 把圖片寫進 Firestore（跟例句同一個 updateDoc 路徑） */
+async function saveImage(row, ix, dataUrl) {
+  const asgId = row.closest('.asg-item')?.dataset.id;
+  if (!asgId) return;
+  const { db } = await initFirebase({ signIn: false });
+  const fs = await import(
+    './assets/vendor/firebase/firebase-firestore.js'
+  );
+  const ref = fs.doc(db, PCS_CONFIG.collections.assignments, asgId);
+  const snap = await fs.getDoc(ref);
+  if (!snap.exists()) return;
+  const items = (snap.data().items || []).slice();
+  if (!items[ix]) return;
+  items[ix] = { ...items[ix], imageDataUrl: dataUrl || null };
+  await fs.updateDoc(ref, { items });
+}
+
+/** 移除圖片（列上沒有 UI 入口了 —— 彈窗裡的 Remove 會走 commitRowImage） */
+async function removeImage(row) {
+  return commitRowImage(row, null);
+}
+
+// ── 選完檔案 ──
+asgRoot.addEventListener('change', (e) => {
+  const f = e.target.closest('input[type=file][data-imgfile]');
+  if (!f?.files?.[0]) return;
+  const slot = e.target.closest('.aiw-img');
+  applyImageToRow(slot.closest('.aiw-row'), f.files[0]);
+  f.value = '';                     // 允許重複選同一張
+});
+
+// ── 拖放：整列都可接收（44px 的圖示格太小，不好瞄準）──
+asgRoot.addEventListener('dragover', (e) => {
+  const row = e.target.closest('.aiw-row');
+  if (!row || imgmIsOpen()) return;
+  const slot = row.querySelector('.aiw-img');
+  if (!slot || slot.dataset.disabled) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  slot.classList.add('drag-over');
+});
+asgRoot.addEventListener('dragleave', (e) => {
+  e.target.closest('.aiw-row')?.querySelector('.aiw-img')?.classList.remove('drag-over');
+});
+asgRoot.addEventListener('drop', (e) => {
+  const row = e.target.closest('.aiw-row');
+  if (!row || imgmIsOpen()) return;
+  const slot = row.querySelector('.aiw-img');
+  if (!slot || slot.dataset.disabled) return;
+  e.preventDefault();
+  slot.classList.remove('drag-over');
+  const file = imageFromDrop(e);
+  if (file) applyImageToRow(slot.closest('.aiw-row'), file);
+  else showMsg('Drop an image file (PNG / JPG).', 'error', 3000);
+});
+
+// ── Ctrl/⌘ + V 貼上 ──
+document.addEventListener('paste', (e) => {
+  // ★ 只在「焦點在圖片欄」或「焦點在例句輸入框」時接手，
+  //   否則會擋掉老師在瀏覽器其他地方的正常貼上。
+  //   ★ 彈窗開著時由彈窗自己的 paste 監聽接手，這裡直接讓開。
+  if (imgmIsOpen()) return;
+  const slot = document.activeElement?.closest?.('.aiw-img');
+  const sentInp = document.activeElement?.closest?.('.aiw-input');
+  if (!slot && !sentInp) return;
+
+  const file = imageFromClipboard(e);
+  if (!file) return;                 // 純文字貼上 → 不攔截，走預設行為
+  e.preventDefault();
+  const row = (slot || sentInp).closest('.aiw-row');
+  if (row) applyImageToRow(row, file);
+});
+
+// blur 時立即存（不必等 debounce）
+asgRoot.addEventListener('blur', async (e) => {
+  const inp = e.target.closest('.aiw-input');
+  if (!inp) return;
+  clearTimeout(saveTimers.get(inp));
+  if (!inp.value.trim() === !inp.dataset.prevEmpty) {
+    // 值沒變就不重複寫
+  }
+  const row = inp.closest('.aiw-row');
+  try {
+    await saveSentence(row, Number(inp.dataset.ix), inp.value.trim());
+    flashSaved(row, true);
+  } catch { flashSaved(row, false); }
+}, true);
+
+asgRoot.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const row = btn.closest('.asg-item');
+  const id = row.dataset.id;
+  const pin = row.dataset.pin;
+  const act = btn.dataset.act;
+
+
+
+  if (act === 'addword' || act === 'delword') {
+    const id = row.dataset.id;
+    const panel = row.querySelector('.ai-words');
+
+    // 讀目前所有列（包含剛編輯中的變更）
+    const rows = [...panel.querySelectorAll('.aiw-row:not(.aiw-new)')];
+    let list = rows.map(r => {
+      const word = r.querySelector('[data-role=word]').textContent.trim();
+      return {
+        order: 0,
+        itemId: '',
+        word,
+        sentences: r.querySelector('[data-role=sent]').value.trim()
+          ? [r.querySelector('[data-role=sent]').value.trim()] : [],
+        // ★ 圖片要一起帶過去 —— 原本寫死 null，
+        //   結果「Add 一個新詞」或「刪掉一個詞」都會把其他詞的圖片清掉。
+        imageDataUrl: r.querySelector('.aiw-img img')?.getAttribute('src') || null,
+        // ★ emoji / 分類同理：原本寫死 null + 'place'，
+        //   每次 Add 或刪一個詞，就把「其他所有詞」的 emoji 洗成預設值 → 全變 🏠。
+        //   這裡改由詞本身重新解析（冪等，順便跟上改名）。
+        imageEmoji: emojiForWord(word),
+        category: categoryForWord(word),
+        note: null,
+      };
+    });
+
+    let source = '';             // 例句來源：you | library | ai（給成功訊息用）
+
+    if (act === 'delword') {
+      const ix = Number(btn.dataset.ix);
+      if (!list[ix]) return;
+      list.splice(ix, 1);      // ★ 不彈窗確認，直接刪（Undo 可用 Ctrl+Z 找回資料）
+    } else {
+      const w = panel.querySelector('[data-role=newWord]').value.trim();
+      if (!w) { panel.querySelector('[data-role=newWord]').focus(); showMsg('Type the word first.', 'error'); return; }
+      if (list.some(x => x.word.toLowerCase() === w.toLowerCase())) {
+        showMsg('That word is already in this assignment.', 'error');
+        return;
+      }
+      const sentEl = panel.querySelector('[data-role=newSent]');
+      const sent = sentEl.value.trim();
+      let sentences = sent ? [sent] : [];
+      // ★ 宣告在最外層。放在 else 區塊裡會被 block scoping 關住，
+      //   下面「Added ...」要讀 source 時會 ReferenceError: source is not defined。
+      source = sent ? 'you' : '';
+
+      // 沒給例句 → ① 查內建句庫 ② 還是沒有 → ② 問 AI 自動寫
+      if (!sentences.length) {
+        const btn = row.querySelector('[data-act=addword]');
+        const restore = btn?.textContent;
+        if (btn) btn.textContent = 'Adding…';
+
+        // ① 內建句庫（免費、已人工校對）
+        try {
+          const [{ sentencesFor }, { phraseInfo }] = await Promise.all([
+            import('./assets/data/sentences.js'),
+            import('./assets/data/phrases.js'),
+          ]);
+          const hit = sentencesFor(w) || phraseInfo(w)?.sentences || [];
+          sentences = hit.slice(0, 2);
+          if (sentences.length) source = 'library';
+        } catch { /* 查不到就往下走 */ }
+
+        // ② 內建沒有 → 問 Gemini（老師已貼 key 的情況）
+        if (!sentences.length && hasKey()) {
+          try {
+            const { generateSentences, qualityCheck } =
+              await import('./assets/js/ai-sentences.js');
+            const drafts = await generateSentences([w]);
+            const { ok } = qualityCheck(drafts);
+            const good = ok.find(d => d.word.toLowerCase() === w.toLowerCase());
+            if (good?.sentence) { sentences = [good.sentence]; source = 'ai'; }
+          } catch (e) {
+            console.warn('[PCS] AI generation failed', e?.message);
+          }
+        }
+
+        if (btn && restore) btn.textContent = restore;
+      }
+
+      list.push({
+        order: 0,
+        itemId: `a_${w.replace(/[^a-z]+/g, '_')}`,
+        word: w, sentences,
+        // ★ 新詞也可以在「新增列」先貼圖再按 Add —— 圖片要一起存進去
+        imageDataUrl: panel.querySelector('.aiw-new .aiw-img img')?.getAttribute('src') || null,
+        // ★ 新增詞彙的當下就自動配好預設 emoji（原本是 null → 學生端變 🏠）
+        imageEmoji: emojiForWord(w), category: categoryForWord(w), note: null,
+      });
+    }
+
+    if (!list.length) { showMsg('An assignment needs at least one word.', 'error'); return; }
+
+    // 正規化 order / itemId 再寫回
+    const normalised = list.map((x, i) => ({
+      ...x,
+      order: i,
+      itemId: x.itemId || `a_${x.word.replace(/[^a-z]+/g, '_')}`,
+    }));
+
+    try {
+      const { db } = await initFirebase({ signIn: false });
+      const fs = await import(
+        './assets/vendor/firebase/firebase-firestore.js'
+      );
+      await fs.updateDoc(fs.doc(db, PCS_CONFIG.collections.assignments, id), {
+        items: normalised,
+        wordCount: normalised.length,
+      });
+      if (act === 'addword') {
+        const last = normalised[normalised.length - 1];
+        const tail = source === 'ai' ? ' · sentence written by AI'
+                   : source === 'library' ? ' · sentence from the library'
+                   : last.sentences?.length ? '' : ' · no sentence yet';
+        showMsg(`Added "${last.word}"${tail}`, last.sentences?.length ? 'success' : 'info');
+      } else {
+        showMsg('Word removed.');
+      }
+      await loadAssignmentList();
+      // 重新展開這一筆（loadAssignmentList 會重畫，展開狀態會消失）
+      const again = [...asgList.querySelectorAll('.asg-item')].find(r => r.dataset.id === id);
+      again?.querySelector('button[data-act=words]')?.click();
+    } catch (err) {
+      console.warn('[PCS] change words failed', err?.message);
+      showMsg(`Could not update the assignment: ${friendlyish(err)}`, 'error', 5000);
+    }
+    return;
+  }
+
+  if (act === 'words') {
+    const panel = row.querySelector('.ai-words');
+    if (!panel) return;
+
+    if (panel.hidden) {
+      // ── 展開並進入編輯模式 ──
+      panel.hidden = false;
+      btn.textContent = 'Save';
+      btn.classList.add('save');
+      panel.querySelectorAll('.aiw-row').forEach(r => r.classList.add('editing'));
+      asgList.querySelectorAll('.asg-item').forEach(r => {
+        if (r === row) return;
+        const p = r.querySelector('.ai-words');
+        const b = r.querySelector('button[data-act=words]');
+        if (p) p.hidden = true;
+        if (b) { b.textContent = `Edit (${b.dataset.count})`; b.classList.remove('save', 'on'); }
+      });
+      return;
+    }
+
+    // ── 收合前強制寫入所有未存的內容 ──
+    const inputs = [...panel.querySelectorAll('.aiw-input:not([data-role=newSent])')];
+    // ★ 改名也要存。word 欄位現在放在左側、老師第一眼就會看到它，
+    //   改名的頻率跟例句一樣高，但原本只存 sentences → 改名會被丟掉。
+    const wordEdits = [...panel.querySelectorAll('[data-role=wordedit]')];
+
+    // ★ 老師在「新增列」打了字但沒按 Add → 點 Save 時自動幫他加進去
+    const newWordEl = panel.querySelector('[data-role=newWord]');
+    const newSentEl = panel.querySelector('[data-role=newSent]');
+    const pendingWord = newWordEl?.value.trim();
+    if (pendingWord) {
+      inputs.push({
+        dataset: { ix: String(inputs.length) },
+        value: newSentEl?.value.trim() || '',
+        _isNew: true,
+        _word: pendingWord,
+      });
+    }
+
+    const dirty = inputs.filter(x => x.value.trim() || x._isNew);
+    const renamed = wordEdits.filter(x => {
+      const ix = Number(x.dataset.ix);
+      const orig = panel.querySelector(`.aiw-row[data-ix="${ix}"] [data-role=word]`);
+      const nv = x.value.trim().toLowerCase();
+      return nv && orig && nv !== orig.textContent.trim().toLowerCase();
+    });
+
+    // ★ 寫入嘗試兩次：第一次失敗就補建白名單再試一次。
+    //   新 Google 帳號剛登入時 teachers/{uid} 還沒建好，
+    //   rules 的 teacherOrList() 會擋掉所有寫入。
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        if (dirty.length || renamed.length) {
+          const id = row.dataset.id;
+          const { db } = await initFirebase({ signIn: false });
+          const fs = await import(
+            './assets/vendor/firebase/firebase-firestore.js'
+          );
+          const ref = fs.doc(db, PCS_CONFIG.collections.assignments, id);
+          const snap = await fs.getDoc(ref);
+          if (snap.exists()) {
+            const items = (snap.data().items || []).slice();
+            let added = 0;
+
+            inputs.forEach(x => {
+              if (x._isNew) {
+                // ★ 新增的詞：沒給例句就查句庫（離線、免費）
+                let sentences = x.value.trim() ? [x.value.trim()] : [];
+                if (!sentences.length) {
+                  const w = x._word.toLowerCase();
+                  sentences = window.__pcsLookupSentence?.(w) ?? [];
+                }
+                items.push({
+                  order: items.length,
+                  itemId: `a_${x._word.replace(/[^a-z]+/g, '_')}`,
+                  word: x._word.toLowerCase(),
+                  sentences,
+                  // ★ 新增列上的圖片也要帶進去（老師可能先貼圖再打字）
+                  imageDataUrl: panel.querySelector('.aiw-new .aiw-img img')?.getAttribute('src') || null,
+                  // ★ 預設 emoji 同 addword：當下就自動配好
+                  imageEmoji: emojiForWord(x._word),
+                  category: categoryForWord(x._word), note: null,
+                });
+                added++;
+                return;
+              }
+              const ix = Number(x.dataset.ix);
+              if (items[ix]) {
+                items[ix] = { ...items[ix], sentences: x.value.trim() ? [x.value.trim()] : [] };
+              }
+            });
+
+            // 套用改名（itemId 一併更新，學生端的 wordId 才會一致）
+            renamed.forEach(x => {
+              const ix = Number(x.dataset.ix);
+              const nv = x.value.trim().toLowerCase();
+              if (items[ix]) {
+                items[ix] = {
+                  ...items[ix],
+                  word: nv,
+                  itemId: `a_${nv.replace(/[^a-z]+/g, '_')}`,
+                  // ★ 改名後預設 emoji 要跟著重新解析（例：bank → cake shop）
+                  imageEmoji: emojiForWord(nv),
+                  category: categoryForWord(nv),
+                };
+              }
+            });
+
+            items.forEach((x, i) => { x.order = i; });
+            await fs.updateDoc(ref, { items, wordCount: items.length });
+            const bits = [];
+            if (added) bits.push(`Added "${pendingWord}"`);
+            if (renamed.length) bits.push(`renamed ${renamed.length} word${renamed.length === 1 ? '' : 's'}`);
+            if (bits.length) showMsg(`${bits.join(' · ')} and saved.`, 'success');
+          }
+        }
+        // 成功 → 跳出重試迴圈
+        break;
+      } catch (err) {
+        const denied = /permission|insufficient/i.test(err?.message || '');
+        if (denied && attempt === 1) {
+          console.warn('[PCS] 寫入被擋，嘗試補建白名單後重試');
+          await ensureWhitelist({ force: true });
+          continue;
+        }
+        console.warn('[PCS] save on close failed', err?.message);
+        showMsg(denied
+          ? 'Still blocked by the Security Rules. Firebase Console → Firestore Database → Rules → paste the latest firestore.rules → Publish, then reload.'
+          : 'Could not save: ' + friendlyish(err), 'error', 9000);
+        return;                    // 儲存失敗就不收合，避免誤以為已存
+      }
+    }
+
+    panel.hidden = true;
+    panel.querySelectorAll('.aiw-row').forEach(r => r.classList.remove('editing'));
+    btn.textContent = `Edit (${btn.dataset.count})`;
+    btn.classList.remove('save', 'on');
+    await loadAssignmentList();
+    return;
+  }
+
+  // ★ Claim：把舊課程（teacherId 為 null 或屬於別人）歸給目前帳號
+  if (act === 'claim') {
+    const me = window.__pcsTeacher;
+    if (!me?.uid) { showMsg('Not signed in.', 'error'); return; }
+    try {
+      const { db } = await initFirebase({ signIn: false });
+      const fs = await import(
+        './assets/vendor/firebase/firebase-firestore.js'
+      );
+      await fs.updateDoc(fs.doc(db, PCS_CONFIG.collections.assignments, id), {
+        teacherId: me.uid,
+        teacherName: me.name || me.email || null,
+      });
+      await loadAssignmentList();
+      showMsg(`"${pin}" is now in Your assignments.`, 'success');
+    } catch (err) {
+      showMsg('Could not claim it: ' + friendlyish(err), 'error', 7000);
+    }
+    return;
+  }
+
+  if (act === 'show') {
+    const all = await listAssignments();
+    const a = all.find(x => x.id === id);
+    if (a) {
+      showDispatch(a);
+      openPinModal(a.pin, a.title);
+    }
+    return;
+  }
+
+  if (act === 'copy') {
+    const url = joinUrl(pin);
+    try { await navigator.clipboard.writeText(url); showMsg('Link copied.'); }
+    catch { showMsg(url, 'info'); }
+    return;
+  }
+
+  const { db } = await initFirebase({ signIn: false });
+  const fs = await import(
+    './assets/vendor/firebase/firebase-firestore.js'
+  );
+  const ref = fs.doc(db, PCS_CONFIG.collections.assignments, id);
+
+  if (act === 'toggle') {
+    const all = await listAssignments();
+    const cur = all.find(x => x.id === id);
+    await fs.updateDoc(ref, { active: cur?.active === false });
+    showMsg(cur?.active === false ? 'Assignment reopened.' : 'Assignment closed.');
+    await loadAssignmentList();
+    return;
+  }
+
+  if (act === 'del') {
+    if (!confirm(`Delete the assignment with PIN ${pin}? Students will no longer be able to join it.`)) return;
+    await fs.deleteDoc(ref);
+    showMsg('Assignment deleted.');
+    await loadAssignmentList();
+  }
+});
+
+// ★ 切換「Spell the whole word」模式：老師在每個 assignment 的編輯面板裡勾選，
+//   即可在「逐字母填空」與「拼整詞」之間來回切換，並即時寫入 Firestore。
+//   （學生端 play.html 會讀 assignment.advanced 來決定出題形態。）
+function paintModeBadge(card, whole) {
+  const title = card?.querySelector('.ai-title');
+  if (!title) return;
+  const name = title.dataset.name || '';
+  title.innerHTML = escapeHtml(name) + (whole
+    ? '<span class="ai-mode whole" title="Students spell every letter themselves">Spell the whole word</span>'
+    : '');
+}
+
+async function updateAssignmentMode(id, whole) {
+  try {
+    const { db } = await initFirebase({ signIn: false });
+    const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+    await fs.updateDoc(fs.doc(db, PCS_CONFIG.collections.assignments, id), { advanced: !!whole });
+    return true;
+  } catch (err) {
+    console.warn('[PCS] 切換出題模式失敗', err?.message);
+    return false;
+  }
+}
+
+asgRoot.addEventListener('change', async (e) => {
+  const cb = e.target.closest('input[data-role=advmode]');
+  if (!cb) return;
+  const id = cb.dataset.id;
+  const whole = cb.checked;
+  const card = cb.closest('.asg-item');
+  // 先即時更新標題徽章（體感才順），背景再寫 Firestore
+  paintModeBadge(card, whole);
+  const ok = await updateAssignmentMode(id, whole);
+  if (!ok) {
+    // 寫入失敗 → 還原勾選與徽章，並提示老師
+    cb.checked = !whole;
+    paintModeBadge(card, !whole);
+    showMsg('Could not switch the mode. Check your connection or publish the Firestore rules.', 'error');
+  } else {
+    showMsg(whole ? 'Mode: Spell the whole word.' : 'Mode: Normal.', 'success', 2500);
+  }
+});
+
+/**
+ * 關閉分頁前提醒。
+ * ★ 只有「新增列」有還沒存的內容時才提醒 ——
+ *   已存在的詞是自動儲存的（800ms debounce），不需要提醒。
+ */
+window.addEventListener('beforeunload', (e) => {
+  // ★ 掃整張卡片（含未連結區），不是只有 #asgList
+  const pending = [...document.querySelectorAll('.aiw-new input')]
+    .some(x => x.value.trim());
+  if (!pending) return;
+  e.preventDefault();
+  e.returnValue = '';       // Chrome 需要這行才會顯示確認框
+});
+
+// 初始
+updateLineCount();
+
+// ★ loadAssignmentList() 依賴 window.__pcsTeacher.teacherId 來篩選，
+//   而 teacherId 是認證閘門確認登入後才填的。
+//   如果這裡直接呼叫（module 頂層），__pcsTeacher 還是 undefined → 課程清單全被當成
+//   「別人的」而消失。所以交給閘門在確認後觸發。
+window.__pcsOnReady = () => loadAssignmentList();
+
+</script>
+</div><!-- /appShell -->
+
+<!-- ══════════════════════════════════════════════
+     ★ 圖片選擇彈窗
+     點某個詞的圖片欄 → 開這個框。三個入口都寫在框上：
+       ① 直接按 ⌘V / Ctrl+V 貼上（最常用）
+       ② 把圖片拖進方框
+       ③ 點方框選檔案
+     選到的圖會先在這裡壓縮（最長邊 400px JPEG），
+     再把壓縮後的實際尺寸與檔案大小顯示給老師看。
+     ══════════════════════════════════════════════ -->
+<div class="imgm-backdrop" id="imgmBackdrop" hidden>
+  <div class="imgm-card" role="dialog" aria-modal="true" aria-labelledby="imgmTitle"
+       id="imgmCard">
+    <div class="imgm-head">
+      <h3 class="imgm-title" id="imgmTitle">Picture for</h3>
+      <span class="imgm-word" id="imgmWord">—</span>
+    </div>
+    <p class="imgm-sub">
+      Paste <kbd>⌘V</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd>, drag a picture into the box,
+      or click the box to pick a file.
+    </p>
+
+    <div class="imgm-drop" id="imgmDrop" tabindex="0" role="button"
+         aria-label="Add a picture">
+      <div class="imgm-empty" id="imgmEmpty">
+        <span class="ico" aria-hidden="true">📷</span>
+        <span class="l1">Click to choose a file</span>
+        <span class="l2">…or paste / drop it right here</span>
+      </div>
+
+      <figure class="imgm-fig" id="imgmFig" hidden>
+        <img id="imgmImg" alt="">
+        <figcaption class="imgm-meta" id="imgmMeta"></figcaption>
+      </figure>
+
+      <div class="imgm-busy" id="imgmBusy" hidden>
+        <span class="dot" aria-hidden="true"></span><span>Compressing…</span>
+      </div>
+
+      <span class="imgm-hover" id="imgmHover">Drop to use this picture</span>
+    </div>
+
+    <div class="imgm-foot">
+      <button class="btn-s danger" id="imgmRemove" type="button" hidden>Remove picture</button>
+      <span class="grow"></span>
+      <button class="btn-s" id="imgmCancel" type="button">Cancel</button>
+      <button class="btn-s primary" id="imgmSave" type="button" disabled>Use this picture</button>
+    </div>
+
+    <input type="file" accept="image/*" id="imgmFile" hidden>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     大 PIN 投影彈窗：老師點 Show PIN 時，連同原卡片一併
+     跳出這個可關閉的大數字彈窗，方便投影到教室大屏讓全班看。
+     樣式沿用圖片上傳彈窗（.imgm-*）的語言。
+     ════════════════════════════════════════════════ -->
+<div class="pinbig-backdrop" id="pinBigBackdrop" hidden>
+  <div class="pinbig-card" role="dialog" aria-modal="true" aria-labelledby="pinBigTitle"
+       id="pinBigCard">
+    <div class="pinbig-head">
+      <h3 class="pinbig-title" id="pinBigTitle">Project this PIN</h3>
+      <button class="pinbig-x" id="pinBigClose" type="button" aria-label="Close">×</button>
+    </div>
+    <p class="pinbig-sub" id="pinBigSub">Students type this on the join screen.</p>
+
+    <div class="pinbig-num" id="pinBigNum">0000</div>
+
+    <div class="pinbig-foot">
+      <span class="grow"></span>
+      <button class="btn-s" id="pinBigDone" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

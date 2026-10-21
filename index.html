@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#F97316">
+
+<!-- ★ 快取破壞守衛：靜態站沒有 build step，瀏覽器會長期快取舊 .js。
+     改了程式碼但使用者跑舊檔，症狀會被誤判成「修正沒生效」。
+     版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
+<script>
+(function () {
+  var BUILD = '2026-10-16-r43';
+  var KEY = 'pcs.build';
+  try {
+    var seen = localStorage.getItem(KEY);
+    if (seen === BUILD) return;
+    localStorage.setItem(KEY, BUILD);
+    if (seen && seen !== BUILD) {
+      location.replace(location.pathname + location.search + '?_r=' + Date.now());
+    }
+  } catch (e) { /* private mode：略過 */ }
+})();
+</script>
+<title>Progressive Cloze Spelling</title>
+<!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-10-16-r43">
+<link rel="stylesheet" href="./assets/css/student.css?v=2026-10-16-r43">
+<style>
+.login-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--orange-soft) 0%, transparent 60%),
+    var(--bg);
+}
+
+.login-shell { width: 100%; max-width: 420px; animation: fadeUp .4s ease-out; position: relative; }
+
+.login-brand { text-align: center; margin-bottom: 22px; }
+
+.brand-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 68px; height: 68px; margin-bottom: 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--orange) 0%, var(--orange-mid) 100%);
+  color: #fff; font-weight: 900; font-size: 21px; letter-spacing: .04em;
+  box-shadow: 0 6px 18px rgba(249,115,22,.32);
+}
+
+.login-brand h1 { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: -.02em; }
+.brand-sub { margin: 4px 0 0; font-size: 14px; color: var(--ink-soft); }
+
+.login-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 26px 22px 20px;
+}
+
+.field { margin-bottom: 16px; }
+.field label { display: block; margin-bottom: 7px; font-size: 13.5px; font-weight: 700; color: var(--ink-mid); }
+
+.field input, .field select {
+  width: 100%; height: var(--tap); padding: 0 15px;
+  border: 2px solid var(--line); border-radius: var(--r);
+  background: var(--card); color: var(--ink);
+  font-size: 17px; transition: border-color .18s, box-shadow .18s;
+  appearance: none; -webkit-appearance: none;
+}
+.field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath fill='%236B7280' d='M1 1l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  padding-right: 42px;
+}
+
+.field input:focus, .field select:focus {
+  outline: none; border-color: var(--orange);
+  box-shadow: 0 0 0 4px var(--orange-soft);
+}
+.field input::placeholder { color: var(--ink-mute); }
+
+.btn-primary {
+  width: 100%; height: 58px; margin-top: 8px;
+  border-radius: var(--r);
+  background: linear-gradient(135deg, var(--orange) 0%, var(--orange-mid) 100%);
+  color: #fff; font-size: 18px; font-weight: 800;
+  box-shadow: 0 4px 14px rgba(249,115,22,.32);
+  transition: transform .12s, opacity .18s;
+}
+.btn-primary:active { transform: translateY(1px) scale(.995); }
+.btn-primary:disabled { opacity: .6; cursor: default; }
+
+/* ── TTS 自檢 ── */
+.tts-check { margin-top: 16px; }
+.tts-btn {
+  display: flex; align-items: center; gap: 13px; width: 100%;
+  padding: 13px 16px; border-radius: var(--r);
+  border: 2px dashed var(--line-mid); background: var(--card-alt);
+  text-align: left; transition: border-color .2s, background .2s;
+}
+.tts-btn:active { background: var(--orange-soft); }
+.tts-icon { font-size: 24px; line-height: 1; }
+.tts-text { display: flex; flex-direction: column; gap: 1px; }
+.tts-text strong { font-size: 14.5px; color: var(--ink); }
+.tts-text small { font-size: 12.5px; color: var(--ink-soft); }
+.tts-btn.tts-ok   { border-color: var(--correct); border-style: solid; background: var(--correct-dim); }
+.tts-btn.tts-warn { border-color: #F59E0B; border-style: solid; background: #FEF3C7; }
+.tts-btn.tts-bad  { border-color: var(--wrong); border-style: solid; background: var(--wrong-dim); }
+
+/* ── 控制台入口 ── */
+.console-entry { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.console-btn {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  width: 100%; height: 48px;
+  border-radius: var(--r);
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  color: var(--ink-mid); font-size: 14.5px; font-weight: 700;
+  transition: background .18s, border-color .18s;
+}
+.console-btn:hover { background: var(--card-alt); border-color: var(--line-mid); }
+.console-btn:active { transform: scale(.99); }
+</style>
+</head>
+
+<body class="login-page">
+
+<!-- ★ 載入失敗提示：module 語法錯誤時瀏覽器不會報錯到 UI，
+     這裡用一個全域錯誤監聽器把問題顯式呈現出來。 -->
+<script>
+window.__pcsFatal = function (msg) {
+  var d = document.getElementById('pcsFatal');
+  if (!d) {
+    d = document.createElement('div');
+    d.id = 'pcsFatal';
+    d.style.cssText = 'position:fixed;inset:auto 12px 12px 12px;z-index:9999;padding:14px 16px;' +
+      'background:#FEE2E2;border:2px solid #DC2626;border-radius:10px;color:#7F1D1D;' +
+      'font:600 13px/1.6 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.2)';
+    document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(d); });
+    if (document.body) document.body.appendChild(d);
+  }
+  d.textContent = 'PCS could not start: ' + msg;
+};
+window.addEventListener('error', function (e) {
+  if (e.target && e.target.tagName === 'SCRIPT') {
+    window.__pcsFatal('a script failed to load (' + (e.target.src || 'inline') + ')');
+  }
+});
+window.addEventListener('unhandledrejection', function (e) {
+  var r = e.reason;
+  if (r && r.message && /import|module|syntax/i.test(r.message)) {
+    window.__pcsFatal(r.message);
+  }
+});
+</script>
+
+
+<div class="login-shell">
+
+  <div class="login-brand">
+    <div class="brand-mark" aria-hidden="true">PCS</div>
+    <h1 data-i18n="app.title">Progressive Cloze Spelling</h1>
+    <p data-i18n="app.tagline">Spell it. Hear it. Try again.</p>
+  </div>
+
+  <!-- ★ novalidate：關掉瀏覽器原生的必填氣泡。
+       沒有它，input 的 required 會先攔住 submit 事件，
+       下面 join.errBadPin / errNoClass / errNoname 三條親和提示永遠不會顯示，
+       學生只看到瀏覽器預設的英文 "Please fill out this field"（不可本地化、看不懂規則）。
+       驗證全部交給 index.html 裡的 submit handler（有完整的錯誤碼與中英文文案）。 -->
+  <form id="loginForm" class="login-card" autocomplete="off" novalidate>
+
+    <!-- ── 1. PIN（Kahoot 式）── -->
+    <div class="pin-block">
+      <label for="pinInput" data-i18n="join.pinLabel">PIN</label>
+      <input id="pinInput" name="pin" type="text" inputmode="numeric"
+             class="pin-input" maxlength="4" placeholder="0000"
+             pattern="[0-9]*" autocomplete="off" required>
+      <p class="pin-hint" data-i18n="join.pinHint">Your teacher will show this on the board</p>
+    </div>
+
+    <!-- ── 2. 學生資料（橫向排列）── -->
+    <div class="row-fields">
+      <div class="field">
+        <label for="classNo" data-i18n="join.classNo">Student No.</label>
+        <input id="classNo" name="classNo" type="text" inputmode="numeric"
+               maxlength="4" placeholder="12" required>
+      </div>
+
+      <div class="field">
+        <label for="studentName" data-i18n="join.name">Name</label>
+        <input id="studentName" name="studentName" type="text"
+               maxlength="24" placeholder="Your name" required>
+      </div>
+    </div>
+
+    <button id="startBtn" class="btn-primary" type="submit" data-i18n="join.start">Start</button>
+
+    <p id="joinErr" class="join-err" role="alert" hidden></p>
+
+    <!-- ── TTS 自檢 ── -->
+    <div class="tts-check">
+      <button id="ttsBtn" class="tts-btn" type="button">
+        <span class="tts-icon" aria-hidden="true">🔊</span>
+        <span class="tts-text">
+          <strong data-i18n="login.tryAudio">Test sound</strong>
+          <small id="ttsStatus">Tap to check the audio</small>
+        </span>
+      </button>
+    </div>
+
+    <!-- ── 老師控制台入口 ── -->
+    <div class="console-entry">
+      <a href="admin-login.html" class="console-btn" id="consoleBtn">
+        <span aria-hidden="true">🔐</span>
+        <span data-i18n="login.console">Teacher Console</span>
+      </a>
+    </div>
+
+  </form>
+</div>
+
+<div class="lang-slot" id="langSlot" style="position:fixed;top:14px;right:16px;z-index:60"></div>
+
+<script type="module">
+import { primeSpeech, speechStatus, speakSentence } from './assets/js/speech.js?v=2026-10-16-r43';
+import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-10-16-r43';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-16-r43';
+import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-10-16-r43';
+
+initLang();
+applyI18n(document);
+mountLangToggle(document.getElementById('langSlot'), {
+  onChange: () => applyI18n(document),
+});
+
+// ── TTS 自檢 ──
+const ttsBtn = document.getElementById('ttsBtn');
+const ttsStatus = document.getElementById('ttsStatus');
+
+function reportTTS() {
+  const s = speechStatus();
+  if (!s.supported) { ttsStatus.textContent = t('login.audioNone'); ttsBtn.classList.add('tts-bad'); return; }
+  if (!s.ready) { ttsStatus.textContent = t('login.audioLoading'); return; }
+  ttsStatus.textContent = s.enGB ? t('login.audioOk') : t('login.audioWarn');
+  ttsBtn.classList.add(s.enGB ? 'tts-ok' : 'tts-warn');
+}
+
+['touchstart', 'click', 'keydown'].forEach(ev =>
+  window.addEventListener(ev, () => { primeSpeech(); unlockAudio(); }, { once: true, passive: true }));
+
+ttsBtn.addEventListener('click', () => {
+  primeSpeech(); unlockAudio(); playTap();
+  speakSentence('I eat an apple every day.');
+  setTimeout(reportTTS, 400);
+});
+
+document.addEventListener('pcs:voices-ready', reportTTS);
+reportTTS();
+
+// ── 進入課程（Kahoot 式 PIN）──
+const form = document.getElementById('loginForm');
+const pinEl = document.getElementById('pinInput');
+const classNoEl = document.getElementById('classNo');
+const nameEl = document.getElementById('studentName');
+const errEl = document.getElementById('joinErr');
+const btn = document.getElementById('startBtn');
+
+// 網址帶 ?pin=1234 時自動填入
+const urlPin = pinFromLocation();
+if (urlPin) pinEl.value = urlPin;
+
+const JOIN_ERRORS = {
+  badpin:   'join.errBadPin',
+  notfound: 'join.errNotFound',
+  closed:   'join.errClosed',
+  empty:    'join.errEmpty',
+  noclass:  'join.errNoClass',
+  noname:   'join.errNoName',
+  network:  'join.errNetwork',
+};
+
+const showErr = (key) => { errEl.textContent = t(key); errEl.hidden = false; };
+const hideErr = () => { errEl.hidden = true; };
+
+pinEl.addEventListener('input', () => {
+  pinEl.value = normalisePin(pinEl.value).replace(/\D/g, '').slice(0, 4);
+  hideErr();
+  if (pinEl.value.length === 4) classNoEl.focus();
+});
+classNoEl.addEventListener('input', () => {
+  classNoEl.value = classNoEl.value.replace(/\D/g, '').slice(0, 4);
+  hideErr();
+});
+// ★ 2026-10-16：姓名框原本沒有 input 監聽 → 填了名字，
+//   「Please enter your name」不會自動消失，學生會以為按鍵沒反應。
+nameEl.addEventListener('input', hideErr);
+[nameEl, pinEl, classNoEl].forEach(el =>
+  el.addEventListener('keydown', (e) => { if (e.key === 'Enter') form.requestSubmit(); }));
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  primeSpeech(); unlockAudio(); hideErr();
+
+  const pin = normalisePin(pinEl.value);
+  const classNo = classNoEl.value.trim();
+  const studentName = nameEl.value.trim();
+
+  if (!isValidPinFormat(pin)) { showErr(JOIN_ERRORS.badpin); pinEl.focus(); pinEl.select(); return; }
+  if (!classNo)  { showErr(JOIN_ERRORS.noclass); classNoEl.focus(); return; }
+  if (!studentName) { showErr(JOIN_ERRORS.noname); nameEl.focus(); return; }
+
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = t('join.finding');
+
+  const r = await joinAssignment({ pin, classNo, studentName });
+
+  if (!r.ok) {
+    btn.disabled = false;
+    btn.textContent = original;
+    showErr(JOIN_ERRORS[r.error] || JOIN_ERRORS.network);
+    pinEl.focus(); pinEl.select();
+    return;
+  }
+
+  // ★ 不存 sessionId —— 學生不需要知道那是什麼。
+  //   sessionId 由 PIN + 班號 + 日期在遊戲頁當場生成。
+  sessionStorage.setItem('pcs.student', JSON.stringify({
+    classNo,
+    studentName,
+    pin,
+    assignmentId: r.assignment.id,
+    assignmentTitle: r.assignment.title,
+    classTitle: r.assignment.title,        // ★ 後台按課程分組用（與 assignmentTitle 同值，語意更明確）
+    phase: r.assignment.phase || 'practice',
+    className: r.assignment.className || '',
+    // ★ Advanced mode：整詞自行填寫的考試模式（預設 false）
+    advanced: !!r.assignment.advanced,
+    joinedAt: Date.now(),
+  }));
+  sessionStorage.setItem('pcs.items', JSON.stringify(r.items));
+
+  location.href = 'play.html';
+});
+</script>
+
+</body>
+</html>

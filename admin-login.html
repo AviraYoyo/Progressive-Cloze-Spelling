@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#C2410C">
+
+<!-- ★ 快取破壞守衛：靜態站沒有 build step，瀏覽器會長期快取舊 .js。
+     改了程式碼但使用者跑舊檔，症狀會被誤判成「修正沒生效」。
+     版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
+<script>
+(function () {
+  var BUILD = '2026-10-16-r43';
+  var KEY = 'pcs.build';
+  try {
+    var seen = localStorage.getItem(KEY);
+    if (seen === BUILD) return;
+    localStorage.setItem(KEY, BUILD);
+    if (seen && seen !== BUILD) {
+      location.replace(location.pathname + location.search + '?_r=' + Date.now());
+    }
+  } catch (e) { /* private mode：略過 */ }
+})();
+</script>
+<title>Teacher Console · Progressive Cloze Spelling</title>
+<!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-16-r43">
+<style>
+body {
+  min-height: 100dvh;
+  display: grid; place-items: center;
+  padding: 28px 20px calc(28px + env(safe-area-inset-bottom));
+  background: radial-gradient(120% 80% at 50% 0%, #FFF3E8 0%, transparent 60%), #FDFCFB;
+}
+
+.shell { width: 100%; max-width: 440px; position: relative; }
+
+.brand { text-align: center; margin-bottom: 24px; }
+
+.brand-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 62px; height: 62px; margin-bottom: 12px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #C2410C 0%, #F97316 100%);
+  color: #fff; font-weight: 900; font-size: 19px; letter-spacing: .04em;
+  box-shadow: 0 6px 18px rgba(194,65,12,.28);
+}
+
+.brand h1 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+.brand p  { margin: 4px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 26px 22px 22px;
+}
+
+/* ── Tabs ── */
+.tabs {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;
+  padding: 4px; background: #F3F4F6; border-radius: 12px; margin-bottom: 22px;
+}
+.tab {
+  height: 40px; border-radius: 9px;
+  font-size: 13.5px; font-weight: 700; color: var(--ink-soft);
+  transition: background .18s, color .18s, box-shadow .18s;
+}
+.tab.active { background: var(--card); color: var(--orange-dark); box-shadow: var(--shadow-sm); }
+
+/* ── Fields ── */
+.field { margin-bottom: 15px; }
+.field label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 700; color: var(--ink-mid); }
+.field input {
+  width: 100%; height: 50px; padding: 0 14px;
+  border: 2px solid var(--line); border-radius: var(--r);
+  background: var(--card); font-size: 16px;
+  transition: border-color .18s, box-shadow .18s;
+  appearance: none; -webkit-appearance: none;
+}
+.field input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 4px var(--orange-soft); }
+.field .hint { margin-top: 5px; font-size: 12px; color: var(--ink-soft); }
+.field .hint.warn { color: #B45309; }
+
+.pw-meter { display: flex; gap: 4px; margin-top: 7px; }
+.pw-bar { height: 4px; flex: 1; border-radius: 2px; background: var(--line); transition: background .2s; }
+
+/* ── Buttons ── */
+.btn {
+  width: 100%; height: 52px; border-radius: var(--r);
+  font-size: 16px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  transition: transform .12s, opacity .18s, background .18s;
+}
+.btn:active { transform: scale(.985); }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn-primary {
+  margin-top: 6px;
+  background: linear-gradient(135deg, #C2410C 0%, #F97316 100%);
+  color: #fff; box-shadow: 0 4px 14px rgba(194,65,12,.26);
+}
+.btn-google { margin-top: 10px; background: var(--card); border: 2px solid var(--line); color: var(--ink); }
+.btn-google:hover { background: var(--card-alt); }
+.btn-ghost { margin-top: 8px; background: transparent; color: var(--orange-dark); font-size: 14px; font-weight: 700; height: 44px; }
+
+.divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 4px; font-size: 12.5px; color: var(--ink-mute); }
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* ── Messages ── */
+.msg {
+  padding: 12px 15px; border-radius: var(--r);
+  font-size: 13.5px; font-weight: 600; margin-bottom: 16px;
+  display: none; line-height: 1.6;
+}
+.msg.show { display: block; }
+.msg.error   { background: var(--wrong-dim); color: #991B1B; border: 1.5px solid #FCA5A5; }
+.msg.success { background: var(--correct-dim); color: #3f6212; border: 1.5px solid #BBE3A0; }
+.msg.info    { background: #F5F3FF; color: #5B21B6; border: 1.5px solid #DDD6FE; }
+.msg .fix { display: block; margin-top: 7px; font-weight: 600; font-size: 12.5px; opacity: .92; }
+.msg .fix a { color: #C2410C; font-weight: 800; }
+
+.security-note {
+  margin-top: 18px; padding: 12px 14px; border-radius: var(--r);
+  background: #FFFBEB; border: 1.5px solid #FDE68A;
+  font-size: 12.5px; color: #92400E; line-height: 1.6;
+}
+.security-note b { display: block; margin-bottom: 3px; font-size: 13px; }
+
+.back-link { display: block; text-align: center; margin-top: 16px; font-size: 13px; color: var(--ink-soft); text-decoration: none; }
+.back-link:hover { color: var(--orange-dark); }
+
+.spinner {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2.5px solid rgba(255,255,255,.4); border-top-color: #fff;
+  animation: spin .7s linear infinite;
+}
+.btn-google .spinner, .btn-ghost .spinner { border-color: var(--line); border-top-color: var(--orange); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <div class="brand">
+    <div class="brand-mark">PCS</div>
+    <h1 data-i18n="auth.brand">Teacher Console</h1>
+    <p data-i18n="auth.brandSub">Progressive Cloze Spelling · Researcher access</p>
+  </div>
+
+  <div class="card">
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-tab="signin" data-i18n="auth.tabSignin">Sign in</button>
+      <button class="tab" data-tab="signup" data-i18n="auth.tabSignup">Register</button>
+      <button class="tab" data-tab="reset" data-i18n="auth.tabReset">Reset</button>
+    </div>
+
+    <div class="msg" id="msg"></div>
+
+    <!-- ── Sign in ── -->
+    <form id="formSignin">
+      <div class="field">
+        <label for="si-email" data-i18n="auth.email">Email</label>
+        <input id="si-email" type="email" autocomplete="email" required
+               data-i18n-attr="placeholder:auth.emailPh" placeholder="Enter your email">
+      </div>
+      <div class="field">
+        <label for="si-pw" data-i18n="auth.password">Password</label>
+        <input id="si-pw" type="password" autocomplete="current-password" required
+               data-i18n-attr="placeholder:auth.passwordPh" placeholder="Enter your password">
+      </div>
+      <button class="btn btn-primary" type="submit" id="si-btn" data-i18n="auth.btnSignin">Sign in</button>
+
+      <div class="divider" data-i18n="auth.or">or</div>
+      <button class="btn btn-google" type="button" id="google-btn">
+        <svg width="18" height="18" viewBox="0 0 48 48">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        <span data-i18n="auth.btnGoogle">Sign in with Google</span>
+      </button>
+    </form>
+
+    <!-- ── Register ── -->
+    <form id="formSignup" style="display:none">
+      <div class="field">
+        <label for="su-name" data-i18n="auth.displayName">Display name</label>
+        <input id="su-name" type="text" autocomplete="name"
+               data-i18n-attr="placeholder:auth.displayNamePh" placeholder="e.g. Koo Ming">
+      </div>
+      <div class="field">
+        <label for="su-email" data-i18n="auth.email">Email</label>
+        <input id="su-email" type="email" autocomplete="email" required
+               data-i18n-attr="placeholder:auth.emailPh" placeholder="Enter your email">
+      </div>
+      <div class="field">
+        <label for="su-pw" data-i18n="auth.password">Password</label>
+        <input id="su-pw" type="password" autocomplete="new-password" required
+               data-i18n-attr="placeholder:auth.passwordNewPh" placeholder="At least 6 characters">
+        <div class="pw-meter" id="pwMeter">
+          <div class="pw-bar"></div><div class="pw-bar"></div>
+          <div class="pw-bar"></div><div class="pw-bar"></div>
+        </div>
+        <div class="hint" id="pwHint" data-i18n="auth.pwHint">Mix letters and numbers</div>
+      </div>
+      <div class="field">
+        <label for="su-pw2" data-i18n="auth.confirmPw">Confirm password</label>
+        <input id="su-pw2" type="password" autocomplete="new-password" required
+               data-i18n-attr="placeholder:auth.confirmPwPh" placeholder="Enter it again">
+      </div>
+      <div class="field">
+        <label for="su-invite" data-i18n="auth.invite">Invite code</label>
+        <input id="su-invite" type="text" required
+               data-i18n-attr="placeholder:auth.invitePh" placeholder="Ask the researcher">
+        <div class="hint" data-i18n="auth.inviteHint">Only invited teachers can register, to protect student data</div>
+      </div>
+      <button class="btn btn-primary" type="submit" id="su-btn" data-i18n="auth.btnCreate">Create account</button>
+    </form>
+
+    <!-- ── Reset ── -->
+    <form id="formReset" style="display:none">
+      <div class="field">
+        <label for="rs-email" data-i18n="auth.email">Email</label>
+        <input id="rs-email" type="email" autocomplete="email" required
+               data-i18n-attr="placeholder:auth.emailPh" placeholder="Enter your email">
+      </div>
+      <button class="btn btn-primary" type="submit" id="rs-btn" data-i18n="auth.btnReset">Send reset link</button>
+      <button class="btn btn-ghost" type="button" id="backToSignin" data-i18n="auth.btnBack">Back to sign in</button>
+    </form>
+  </div>
+
+  <div class="security-note">
+    <b data-i18n="auth.noteTitle">⚠️ Before first use</b>
+    <span data-i18n="auth.noteBody">This system collects student names and spelling results. Use a password only you know.
+    Change the default password before deployment.</span>
+  </div>
+
+  <a class="back-link" href="index.html" data-i18n="auth.backLink">← Back to student app</a>
+</div>
+
+<div class="lang-slot" id="langSlot" style="position:fixed;top:14px;right:16px;z-index:60"></div>
+
+<!-- ★ 載入失敗提示：module 語法錯誤時瀏覽器不會報錯到 UI，
+     這裡用一個全域錯誤監聽器把問題顯式呈現出來。 -->
+<script>
+window.__pcsFatal = function (msg) {
+  var d = document.getElementById('pcsFatal');
+  if (!d) {
+    d = document.createElement('div');
+    d.id = 'pcsFatal';
+    d.style.cssText = 'position:fixed;inset:auto 12px 12px 12px;z-index:9999;padding:14px 16px;' +
+      'background:#FEE2E2;border:2px solid #DC2626;border-radius:10px;color:#7F1D1D;' +
+      'font:600 13px/1.6 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.2)';
+    document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(d); });
+    if (document.body) document.body.appendChild(d);
+  }
+  d.textContent = 'PCS could not start: ' + msg;
+};
+window.addEventListener('error', function (e) {
+  if (e.target && e.target.tagName === 'SCRIPT') {
+    window.__pcsFatal('a script failed to load (' + (e.target.src || 'inline') + ')');
+  }
+});
+window.addEventListener('unhandledrejection', function (e) {
+  var r = e.reason;
+  if (r && r.message && /import|module|syntax/i.test(r.message)) {
+    window.__pcsFatal(r.message);
+  }
+});
+</script>
+
+<script type="module">
+import {
+  signInWithEmail, signUpWithEmail, signInWithGoogle,
+  sendPasswordReset, checkPassword, enablePersistentSignIn,
+} from './assets/js/auth.js?v=2026-10-16-r43';
+import { initLang, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-16-r43';
+
+/**
+ * 跳轉前等待 Firebase 把登入狀態持久化到 localStorage。
+ * ★ 沒有這一步，admin.html 重新載入時 onAuthStateChanged 的首次回呼
+ *   會是 null（狀態還沒寫完），於是又被當成未登入跳回來 —— 也就是「閃一下」。
+ */
+async function waitAuthPersisted() {
+  try {
+    const { initFirebase } = await import('./assets/js/firebase.js');
+    const { auth } = await initFirebase({ signIn: false });
+    await new Promise((resolve) => {
+      const unsub = auth.onAuthStateChanged((user) => {
+        if (user) { unsub(); resolve(true); }
+      });
+      setTimeout(() => { unsub(); resolve(false); }, 3000);
+    });
+  } catch { /* admin.html 的閘門會擋下來 */ }
+}
+
+initLang();
+applyI18n(document);
+mountLangToggle(document.getElementById('langSlot'), { onChange: () => applyI18n(document) });
+
+// ★ 保持登入：local persistence。關掉分頁、重新開瀏覽器都不用再 Sign in。
+//   已經在登入狀態的話直接進後台，不要再要求按一次。
+enablePersistentSignIn().then(async () => {
+  try {
+    const { initFirebase } = await import('./assets/js/firebase.js');
+    const { auth } = await initFirebase({ signIn: false });
+    if (auth.currentUser) location.replace('admin.html');
+  } catch { /* 判斷不了就停在登入頁 */ }
+});
+
+// ── Tabs ──
+const tabs = document.getElementById('tabs');
+const forms = {
+  signin: document.getElementById('formSignin'),
+  signup: document.getElementById('formSignup'),
+  reset: document.getElementById('formReset'),
+};
+
+tabs.addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab');
+  if (btn) switchTab(btn.dataset.tab);
+});
+
+function switchTab(name) {
+  for (const [k, f] of Object.entries(forms)) f.style.display = k === name ? '' : 'none';
+  for (const t of tabs.querySelectorAll('.tab')) t.classList.toggle('active', t.dataset.tab === name);
+  hideMsg();
+}
+document.getElementById('backToSignin').addEventListener('click', () => switchTab('signin'));
+
+// ── Messages ──
+const msg = document.getElementById('msg');
+function showMsg(html, kind = 'error') { msg.innerHTML = html; msg.className = `msg ${kind} show`; }
+function hideMsg() { msg.className = 'msg'; }
+
+/**
+ * Firebase Console 設定指引。
+ * 這兩個錯誤九成是 Console 沒設定，不是程式問題。
+ */
+const FIX_HINTS = {
+  'auth/operation-not-allowed': `<span class="fix">Fix: Firebase Console → <b>Authentication</b> → <b>Sign-in method</b> tab →
+    enable <b>Email/Password</b> (and <b>Google</b> for the Google button).</span>`,
+  'auth/unauthorized-domain': `<span class="fix">Fix: Firebase Console → <b>Authentication</b> → <b>Settings</b> →
+    <b>Authorized domains</b> → click <b>Add domain</b> → add <code>localhost</code>
+    (and your real domain later, e.g. <code>yourname.github.io</code>).</span>`,
+  'auth/popup-blocked': `<span class="fix">Fix: allow pop-ups for this site, then try again.
+    Or use the Email/Password form above.</span>`,
+  'permission-denied': `<span class="fix">This is a Firestore Rules problem, not a sign-in problem.
+    Firebase Console → <b>Firestore Database</b> → <b>Rules</b> → paste <code>firestore.rules</code> → Publish.</span>`,
+};
+
+function showAuthError(code, text) {
+  const fix = FIX_HINTS[code] || '';
+  showMsg(`${text}${fix}`, 'error');
+}
+
+// ── Button busy state ──
+function busy(btn, on, label = 'Working…') {
+  if (on) {
+    btn.dataset.label = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner"></span>${label}`;
+  } else {
+    btn.disabled = false;
+    if (btn.dataset.label) btn.innerHTML = btn.dataset.label;
+  }
+}
+
+// ── Password strength ──
+const suPw = document.getElementById('su-pw');
+const pwMeter = document.getElementById('pwMeter');
+const pwHint = document.getElementById('pwHint');
+
+suPw.addEventListener('input', () => {
+  const r = checkPassword(suPw.value);
+  pwMeter.querySelectorAll('.pw-bar').forEach((b, i) => {
+    b.style.background = (suPw.value && i < r.score)
+      ? ['#EF4444', '#F59E0B', '#65BE22', '#16A34A'][r.score - 1] : 'var(--line)';
+  });
+  if (!suPw.value) { pwHint.className = 'hint'; pwHint.textContent = 'Mix letters and numbers'; return; }
+  if (r.weak) { pwHint.className = 'hint warn'; pwHint.textContent = '⚠️ This password is very easy to guess'; }
+  else if (!r.ok) { pwHint.className = 'hint warn'; pwHint.textContent = 'Suggestion: ' + r.issues.join(', '); }
+  else { pwHint.className = 'hint'; pwHint.textContent = '✓ Password is strong enough'; }
+});
+
+// ── Sign in ──
+document.getElementById('formSignin').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('si-btn');
+  busy(btn, true, 'Signing in…');
+  const r = await signInWithEmail({
+    email: document.getElementById('si-email').value.trim(),
+    password: document.getElementById('si-pw').value,
+  });
+  busy(btn, false);
+  if (r.ok) {
+    showMsg('Signed in. Opening the console…', 'success');
+    await waitAuthPersisted();
+    setTimeout(() => { location.href = 'admin.html'; }, 300);
+  } else if (r.cancelled) {
+    hideMsg();
+  } else {
+    showAuthError(r.code, r.error || 'Sign-in failed');
+  }
+});
+
+// ── Google ──
+document.getElementById('google-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('google-btn');
+  busy(btn, true, 'Opening Google…');
+  const r = await signInWithGoogle();
+  busy(btn, false);
+  if (r.ok) {
+    showMsg('Signed in. Opening the console…', 'success');
+    await waitAuthPersisted();
+    setTimeout(() => { location.href = 'admin.html'; }, 300);
+  } else if (r.cancelled) {
+    hideMsg();
+  } else {
+    showAuthError(r.code, r.error || 'Google sign-in failed');
+  }
+});
+
+// ── Register ──
+document.getElementById('formSignup').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pw = document.getElementById('su-pw').value;
+  const pw2 = document.getElementById('su-pw2').value;
+  if (pw !== pw2) { showMsg('The two passwords do not match'); return; }
+
+  const btn = document.getElementById('su-btn');
+  busy(btn, true, 'Creating…');
+  const r = await signUpWithEmail({
+    email: document.getElementById('su-email').value.trim(),
+    password: pw,
+    displayName: document.getElementById('su-name').value.trim(),
+    inviteCode: document.getElementById('su-invite').value,
+  });
+  busy(btn, false);
+
+  if (r.ok) {
+    // ★ 註冊即完成，不需要驗證信。
+    showMsg('Account created. Opening the console…', 'success');
+    await waitAuthPersisted();
+    setTimeout(() => { location.href = 'admin.html'; }, 400);
+  } else {
+    showAuthError(r.code, r.error || 'Registration failed');
+  }
+});
+
+// ── Reset ──
+document.getElementById('formReset').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('rs-btn');
+  busy(btn, true, 'Sending…');
+  const r = await sendPasswordReset({ email: document.getElementById('rs-email').value.trim() });
+  busy(btn, false);
+  showMsg(r.ok ? r.message : (r.error || 'Could not send the email'), r.ok ? 'success' : 'error');
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1077 @@
+/**
+ * PCS — Student UI Styles
+ * Progressive Cloze Spelling · CPI 2026
+ */
+
+/* ═══════════════════════════════════════════════
+   登入頁
+   ═══════════════════════════════════════════════ */
+
+.login-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--orange-soft) 0%, transparent 60%),
+    var(--bg);
+}
+
+.login-shell {
+  width: 100%;
+  max-width: 420px;
+  animation: fadeUp .4s ease-out;
+}
+
+.login-brand {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px; height: 68px;
+  margin-bottom: 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--orange) 0%, var(--orange-mid) 100%);
+  color: #fff;
+  font-weight: 900;
+  font-size: 21px;
+  letter-spacing: .04em;
+  box-shadow: 0 6px 18px rgba(249,115,22,.32);
+}
+
+.login-brand h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  color: var(--ink);
+}
+
+.brand-sub {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.login-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 26px 22px 20px;
+}
+
+.field { margin-bottom: 16px; }
+
+.field label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink-mid);
+}
+
+.field input,
+.field select {
+  width: 100%;
+  height: var(--tap);
+  padding: 0 15px;
+  border: 2px solid var(--line);
+  border-radius: var(--r);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 17px;
+  transition: border-color .18s, box-shadow .18s;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--orange);
+  box-shadow: 0 0 0 4px var(--orange-soft);
+}
+
+.field input::placeholder { color: var(--ink-mute); }
+
+.btn-primary {
+  width: 100%;
+  height: 58px;
+  margin-top: 8px;
+  border-radius: var(--r);
+  background: linear-gradient(135deg, var(--orange) 0%, var(--orange-mid) 100%);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  box-shadow: 0 4px 14px rgba(249,115,22,.32);
+  transition: transform .12s, box-shadow .18s, opacity .18s;
+}
+
+.btn-primary:active { transform: translateY(1px) scale(.995); }
+.btn-primary:disabled { opacity: .6; cursor: default; }
+
+.login-foot {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--ink-mute);
+  text-align: center;
+}
+
+/* ── TTS 自檢 ── */
+.tts-check { margin-top: 16px; }
+
+.tts-btn {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  padding: 13px 16px;
+  border-radius: var(--r);
+  border: 2px dashed var(--line-mid);
+  background: var(--card-alt);
+  text-align: left;
+  transition: border-color .2s, background .2s;
+}
+
+.tts-btn:active { background: var(--orange-soft); }
+.tts-icon { font-size: 24px; line-height: 1; }
+.tts-text { display: flex; flex-direction: column; gap: 1px; }
+.tts-text strong { font-size: 14.5px; color: var(--ink); }
+.tts-text small  { font-size: 12.5px; color: var(--ink-soft); }
+
+.tts-btn.tts-ok   { border-color: var(--correct); border-style: solid; background: var(--correct-dim); }
+.tts-btn.tts-warn { border-color: #F59E0B; border-style: solid; background: #FEF3C7; }
+.tts-btn.tts-bad  { border-color: var(--wrong); border-style: solid; background: var(--wrong-dim); }
+
+.login-links {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.login-links a { color: var(--orange-dark); text-decoration: none; font-weight: 600; }
+.login-links a:hover { text-decoration: underline; }
+
+/* ═══════════════════════════════════════════════
+   遊戲頁 — 整體骨架
+   ═══════════════════════════════════════════════ */
+
+.play-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* ── 頂部列 ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(12px + env(safe-area-inset-top)) 18px 12px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.topbar-id {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.topbar-id .name {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-id .meta { font-size: 12px; color: var(--ink-soft); }
+
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar .rank-toggle { flex-shrink: 0; }
+
+/* 頂部「學生身分」晶片：顯示當前 assignment 的 PIN + 學生名字 */
+.session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 13px 5px 10px;
+  border-radius: 20px;
+  background: var(--card-alt, #f4f5f7);
+  border: 1px solid var(--line);
+  min-width: 0;
+  flex-shrink: 0;
+}
+.session-chip[hidden] { display: none; }
+.session-chip .sc-avatar { font-size: 16px; line-height: 1; flex-shrink: 0; }
+.session-chip .sc-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.session-chip .sc-name {
+  font-size: 13.5px; font-weight: 800; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;
+}
+.session-chip .sc-pin { font-size: 11.5px; color: var(--ink-soft); white-space: nowrap; }
+.session-chip .sc-pin b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.session-chip .sc-class { color: var(--ink-mute, #9CA3AF); }
+
+/* 同步狀態徽章 */
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--correct-dim);
+  color: #4d7c0f;
+  white-space: nowrap;
+}
+
+.sync-badge .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--correct);
+}
+
+.sync-badge.pending { background: var(--orange-soft); color: var(--orange-dark); }
+.sync-badge.pending .dot { background: var(--orange); animation: pulse 1.4s infinite; }
+.sync-badge.error { background: var(--wrong-dim); color: #991B1B; }
+.sync-badge.error .dot { background: var(--wrong); }
+
+/* 計分 */
+.score-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 13px;
+  border-radius: 20px;
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange-line);
+  font-size: 12px;
+  color: var(--orange-dark);
+  font-weight: 700;
+}
+
+.score-pill b { font-size: 16px; font-variant-numeric: tabular-nums; }
+
+/* ── 進度條 ── */
+.progress-wrap {
+  padding: 0 18px;
+  background: var(--card);
+  flex-shrink: 0;
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+  margin-bottom: 7px;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--orange) 0%, var(--orange-mid) 100%);
+  width: 0%;
+  transition: width .35s cubic-bezier(.4,0,.2,1);
+}
+
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  padding-bottom: 9px;
+}
+
+/* ── 主舞台 ── */
+.stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 18px calc(18px + env(safe-area-inset-bottom));
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* 關卡標籤 */
+.level-tag {
+  align-self: center;
+  padding: 5px 15px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  background: var(--orange-soft);
+  color: var(--orange-dark);
+  border: 1.5px solid var(--orange-line);
+  margin-bottom: 16px;
+}
+
+.level-tag .tgt { opacity: .75; font-weight: 600; }
+
+/* ── 單詞圖 ── */
+.word-figure {
+  width: 100%;
+  max-width: 300px;
+  aspect-ratio: 4/3;
+  margin: 0 auto 20px;
+  border-radius: var(--r-lg);
+  background: var(--orange-soft);
+  border: 2px solid var(--orange-line);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.word-figure img { width: 100%; height: 100%; object-fit: cover; }
+
+.word-figure .placeholder {
+  font-size: 76px;
+  line-height: 1;
+  opacity: .5;
+}
+
+/* ── 例句區 ── */
+.sentence-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  padding: 20px 18px;
+  margin-bottom: 18px;
+}
+
+.sentence-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sentence-text {
+  flex: 1;
+  font-size: clamp(19px, 4.6vw, 25px);
+  line-height: 1.65;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* 例句中已填的字母 */
+.sentence-text .given { color: var(--ink); font-weight: 600; }
+
+/* ★ 例句中的空格：單橫線，緊貼單詞，不顯示任何字母 */
+.sentence-text .slot-inline {
+  display: inline-block;
+  width: 1.05em;
+  height: 1.1em;
+  margin: 0 1px;
+  border-bottom: 3px solid var(--input-blue);
+  vertical-align: baseline;
+  border-radius: 2px;
+  transition: border-color .16s;
+}
+
+.sentence-text .slot-inline.filled { border-bottom-color: var(--orange); }
+.sentence-text .slot-inline.ok { border-bottom-color: var(--correct); }
+.sentence-text .slot-inline.no { border-bottom-color: var(--wrong); }
+
+/* 喇叭按鈕 */
+.speaker-btn {
+  flex-shrink: 0;
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--orange-soft);
+  border: 2px solid var(--orange-line);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  transition: transform .12s, background .18s;
+}
+
+.speaker-btn:active { transform: scale(.92); background: var(--orange); }
+.speaker-btn.speaking { animation: pulse .9s infinite; }
+
+/* ── 挖空作答區 ── */
+/* ★ 用真正的 <input>：div 不會讓 iPad 彈出鍵盤 */
+
+/* ★★★ 佈局：每個字母位置是一個 .cell（flex column：上=輸入框、下=答案格）。
+ *
+ *   【為什麼每格獨立成一個 .cell】
+ *   每個字母的「輸入框」與「答案格」裝在同一個容器裡，上下對齊由容器
+ *   內部保證，完全不依賴 Grid/Flex 的 auto-placement 演算法。
+ *   之前用「input/answer 交錯 + grid-row 指定行號」會靠 auto-placement
+ *   把元素依序塞進欄位；一旦有跨欄元素（詞間分隔）或換行，演算法就會
+ *   算錯，答案列與輸入框整排錯開。
+ *
+ *   【為什麼絕不換行】
+ *   ★ 這是上一次交付的真正問題：`--letter-size` 固定 46px，
+ *     "police station"（13 格）需要 743px，而 .stage 只有 684px 可用，
+ *     於是 flex-wrap 把整列折成兩行 → 答案列被拆成好幾段、看起來像沒對齊。
+ *   現在改成 flex-wrap: nowrap，並由 play.html 的 fitClozeRow() 依「詞長
+ *   與可用寬度」動態算出剛好塞得下的格寬（寫在 #clozeRow 的 inline
+ *   --letter-size 上，覆蓋 :root 的預設值）。
+ *   結果：不論詞多長都維持單行、每格等寬、上下永遠對齊。
+ *
+ * ★★ 寫 CSS 註解必須用 /* ... *&#47;。用 // 會讓解析器一路吃到下一個
+ *    合法規則為止，中間的規則會被**靜默丟棄**（不報錯，只是沒生效）。
+ */
+.cloze-row {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: nowrap;              /* ★ 絕不換行（格寬已由 JS 縮到塞得下） */
+  gap: var(--letter-gap, 10px);
+  margin-bottom: 20px;
+  /* 極端長的詞（>20 格）縮到最小仍可能溢出 → 這時允許橫向滑動，不折行 */
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;            /* 給捲軸一點空間，避免裁掉答案行的下緣 */
+}
+
+.cloze-row > .cell {
+  display: flex;
+  flex-direction: column;         /* 上：輸入框／給的字，下：答案格 */
+  align-items: center;
+  gap: var(--letter-gap, 10px);
+  flex-shrink: 0;
+  /* ★ 固定欄寬：同一格裡的輸入框與答案格都是這個寬度 →
+     最後一個字母的答案格與第一個輸入框都落在同一條垂直線上。 */
+  width: var(--letter-size);
+}
+
+/* ★ADV 詞與詞之間的分隔：只有空白，沒有輸入框也沒有答案格。
+   給一個窄寬度，視覺上像真的 underscored answer line。 */
+.cloze-row > .cell-sep {
+  width: calc(var(--letter-size) * 0.5);
+  height: calc(var(--letter-size) + 10px);
+}
+
+/* 答案行：固定寬度與高度，永遠與上方的格子同寬同欄。
+   空的時候完全透明（只佔位保證對齊），答錯時才顯出來。 */
+.slot-answer {
+  width: var(--letter-size);      /* ★ 與 .slot-input 同寬 → 不會左右飄 */
+  height: calc(var(--letter-size) + 10px);
+  display: flex;                  /* ★ 用 flex 置中，比 grid 在 Safari 上更穩 */
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: var(--letter-size);
+  font-weight: 700;
+  line-height: 1;
+  color: transparent;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 11px;
+}
+/* 只有答錯的那一格會加上 .show，此時才顯出綠框與正確字母 */
+/* ★ 答錯時：整個單詞逐格顯示在下方，每格與上方框同寬 → 嚴格對齊。
+   不用綠色：這套系統裡綠色代表「答對」，用綠色會語意衝突。 */
+.slot-answer.show {
+  color: var(--ink);
+  background: var(--card-alt);
+  border: none;
+  font-weight: 800;
+}
+/* 原本答錯的那幾格：加淡橘底，讓學生一眼看出錯在哪 */
+.slot-answer.miss {
+  background: var(--orange-soft);
+  color: var(--orange-dark);
+}
+
+
+/* 短語的詞間距也要跟著 grid */
+.phrase-boxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, var(--letter-size));
+  justify-content: center;
+  gap: 10px;
+  grid-auto-rows: calc(var(--letter-size) + 10px);
+  margin-bottom: 14px;
+}
+
+.slot-input {
+  width: var(--letter-size);
+  height: calc(var(--letter-size) + 10px);
+  padding: 0;
+  border: 2.5px solid var(--input-blue);
+  border-radius: 11px;
+  background: #F5F7FF;
+  font-family: var(--font-mono);
+  font-size: var(--letter-size);
+  font-weight: 700;
+  color: var(--input-blue);
+  text-align: center;
+  line-height: 1;
+  /* 隱藏 iOS 的預設圓角與縮放 */
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 11px;
+}
+
+.slot-input:focus {
+  outline: none;
+  border-color: var(--orange);
+  background: #FFF8F2;
+  box-shadow: 0 0 0 4px var(--orange-soft);
+}
+
+/* 已有內容 → 收起虛線感，看起來像已填 */
+.slot-input.filled { background: #F5F7FF; }
+
+/* ★ 每個格子用 slot-wrap 包起來，讓正確字母能精準對齊在空格「正下方」 */
+/* 字母框在 grid 裡佔第 1 列，答案在第 2 列 */
+.slot-wrap { display: contents; }
+
+.slot-input.ok {
+  border-color: var(--correct);
+  background: var(--correct-dim);
+  color: var(--correct);
+  animation: pop .3s ease-out;
+}
+
+.slot-input.no {
+  border-color: var(--wrong);
+  background: var(--wrong-dim);
+  color: var(--wrong);
+  animation: shake .4s ease-in-out;
+}
+
+/* ★★ 訂正成功：學生自己把錯的字母改對。
+   短暫放大一下再回到一般綠框，讓「我改對了！」這個瞬間被看見。
+   （單純變綠框不夠，因為綠框同時代表「一開始就答對」，
+     學生分不出自己剛才做了一件好事。） */
+@keyframes fixed-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+.slot-input.just-fixed {
+  animation: fixed-pop .42s cubic-bezier(.34, 1.56, .64, 1);
+  box-shadow: 0 0 0 4px var(--correct-dim);
+}
+
+/* ★★ 冠詞框（a / an / the）：與「已給定字母框」**完全同款同尺寸**。
+   多詞短語在 progressive 模式下整組呈現（"a cake shop"、"an art room"），
+   冠詞是短語的一部分，所以它必須長得跟後面的字母框一模一樣：
+   同寬、同高、同字號、同圓角、同虛線。
+
+   ★ 走過的彎路（別再回去）：
+     v1 用 `align-self: center` 的圓形 pill → `.cell` 是「兩列」的 flex
+        column（上：字母框、下：答案格），置中的對象是**整格**（約 122px），
+        於是冠詞被推到字母列下方 ~33px，看起來像自己跑去下一行。
+     v2 改成 flex-start + 與字母框同高，但字號仍是 0.6× → 對齊修好了，
+        卻變成同一列有兩種大小的字（"a cake shop" 的 a 比 c / a / k 小一號）。
+        使用者回報「那個 a 的大小又不一樣了」。
+     v3（現在）直接沿用下面的 .slot-given 宣告，尺寸由同一個 class 保證一致，
+        標記只留 .art-given 這個語意名稱（實驗記錄用），不再有獨立的 pill 樣式。 */
+
+/* ★ 規則框（已給的字母）—— 用 span 不是 input
+   ★ .art-given（冠詞）與它共用同一組宣告 → 整列讀起來就是
+     "a cake shop" / "an art room"，要填的只有被挖空的那幾格。 */
+.slot-given,
+.art-given {
+  width: var(--letter-size);
+  height: calc(var(--letter-size) + 10px);
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--card-alt);
+  border: 2px dashed var(--line);
+  font-family: var(--font-mono);
+  font-size: var(--letter-size);
+  font-weight: 700;
+  color: var(--ink-mid);
+  line-height: 1;
+}
+
+/* ── ★ 答錯時的正確字母提示 ──
+   使用者要求：正正好在空格下面、字號相同、顏色要對（綠色，不是紅色）。 */
+/* 錯的格子邊框改用柔和的橘，不刺眼 */
+.slot-input.no {
+  border-color: var(--orange);
+  background: var(--orange-soft);
+  color: var(--orange-dark);
+  animation: shake .4s ease-in-out;
+}
+
+/* Next 按鈕：與 Check 視覺區隔，避免學生以為重複提交 */
+.btn-submit.next {
+  background: linear-gradient(135deg, #65BE22 0%, #86D637 100%);
+  box-shadow: 0 4px 14px rgba(101,190,34,.32);
+}
+
+/* ── 診斷訊息 ── */
+.diagnosis {
+  min-height: 62px;
+  padding: 12px 16px;
+  border-radius: var(--r);
+  font-size: 15.5px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.diagnosis.ok {
+  background: var(--correct-dim);
+  color: #3f6212;
+  border: 1.5px solid #BBE3A0;
+}
+
+.diagnosis.no {
+  background: var(--wrong-dim);
+  color: #991B1B;
+  border: 1.5px solid #FFC5C5;
+}
+
+.diagnosis.idle {
+  background: var(--card-alt);
+  color: var(--ink-mute);
+  border: 1.5px dashed var(--line);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.diagnosis .zh { font-size: 13px; opacity: .8; font-weight: 600; }
+
+/* ── 底部動作列 ── */
+.actions {
+  display: flex;
+  gap: 11px;
+  margin-top: auto;
+}
+
+.btn-skip, .btn-submit {
+  height: var(--tap);
+  border-radius: var(--r);
+  font-size: 16px;
+  font-weight: 800;
+  transition: transform .12s, opacity .18s;
+}
+
+.btn-skip {
+  flex-shrink: 0;
+  padding: 0 24px;
+  background: var(--card);
+  border: 2px solid var(--line);
+  color: var(--ink-soft);
+}
+
+.btn-skip:active { transform: scale(.97); }
+
+.btn-submit {
+  flex: 1;
+  background: linear-gradient(135deg, var(--orange) 0%, var(--orange-mid) 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(249,115,22,.3);
+}
+
+.btn-submit:active { transform: scale(.98); }
+.btn-submit:disabled { opacity: .45; cursor: default; box-shadow: none; }
+
+/* ── 結算畫面 ── */
+.result-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 32px 24px;
+  text-align: center;
+  animation: fadeUp .4s ease-out;
+}
+
+.result-emoji { font-size: 58px; line-height: 1; margin-bottom: 12px; }
+.result-card h2 { margin: 0 0 6px; font-size: 24px; font-weight: 800; }
+.result-card .sub { margin: 0 0 24px; font-size: 15px; color: var(--ink-soft); }
+
+.result-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 26px;
+}
+
+.stat-box {
+  padding: 16px 12px;
+  border-radius: var(--r);
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange-line);
+}
+
+.stat-box .v {
+  font-size: 27px;
+  font-weight: 900;
+  color: var(--orange-dark);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.stat-box .k { font-size: 12px; color: var(--orange-dark); opacity: .8; margin-top: 2px; }
+
+/* ── Recap（結算頁回顧本局練過的詞）── */
+.recap {
+  margin: 4px 0 26px;
+  text-align: left;
+}
+.recap-title {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.recap-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.recap-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--card-alt);
+  border: 1px solid var(--line);
+}
+.recap-item.done { border-color: var(--correct, #86C26B); background: var(--correct-dim, #ECFDF3); }
+.recap-emoji { font-size: 20px; line-height: 1; flex-shrink: 0; }
+.recap-word {
+  flex: 1; min-width: 0;
+  font-size: 13px; font-weight: 700; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.recap-mark { font-size: 15px; font-weight: 900; flex-shrink: 0; }
+.recap-item.done .recap-mark { color: var(--correct, #16A34A); }
+.recap-item.partial .recap-mark { color: var(--ink-mute); }
+
+.btn-done {
+  width: 100%;
+  height: 56px;
+  border-radius: var(--r);
+  background: var(--ink);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+/* ── 載入 ── */
+.loading {
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  padding: 60px 20px;
+  color: var(--ink-soft);
+}
+
+.spinner {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 3.5px solid var(--orange-line);
+  border-top-color: var(--orange);
+  animation: spin .8s linear infinite;
+}
+
+/* ── 小螢幕優化 ── */
+@media (max-height: 700px) {
+  :root { --letter-size: 34px; }
+  .word-figure { max-width: 210px; margin-bottom: 14px; }
+  .stage { padding-top: 14px; }
+}
+
+@media (min-width: 700px) {
+  :root { --letter-size: 46px; }
+}
+/* ★ hidden 屬性會被 class 裡的 display:flex 蓋掉 —— 這條是必要的 */
+[hidden] { display: none !important; }
+
+/* ═══════════════════════════════════════════════
+   語言切換（右上角浮動）
+   ═══════════════════════════════════════════════ */
+.lang-slot {
+  margin-left: 10px;
+  flex-shrink: 0;
+}
+
+.lang-toggle {
+  min-width: 58px;
+  height: 36px;
+  padding: 0 13px;
+  border-radius: 18px;
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  color: var(--ink-mid);
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: var(--shadow-sm);
+  transition: background .18s, border-color .18s;
+}
+
+.lang-toggle:active { background: var(--orange-soft); border-color: var(--orange-line); }
+
+/* ═══════════════════════════════════════════════
+   班級排名
+   ═══════════════════════════════════════════════ */
+.rank-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange-line);
+  color: var(--orange-dark);
+  font-size: 13px;
+  font-weight: 800;
+  transition: transform .12s;
+}
+.rank-toggle:active { transform: scale(.96); }
+.rank-toggle-icon { font-size: 15px; }
+
+/* 抽屜 */
+.drawer-backdrop {
+  position: fixed; inset: 0; z-index: 70;
+  background: rgba(17, 24, 39, .42);
+  backdrop-filter: blur(2px);
+}
+
+.drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  z-index: 71;
+  width: min(400px, 88vw);
+  background: var(--card);
+  box-shadow: -8px 0 32px rgba(0,0,0,.14);
+  display: flex;
+  flex-direction: column;
+  animation: slideIn .24s cubic-bezier(.32,.72,0,1);
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.drawer-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: calc(16px + env(safe-area-inset-top)) 18px 14px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.drawer-head h2 { margin: 0; font-size: 17px; font-weight: 800; }
+
+.drawer-close {
+  margin-left: auto;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 15px; color: var(--ink-soft);
+  background: var(--card-alt);
+}
+.drawer-close:active { background: var(--line); }
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+
+.rank-loading { padding: 40px 20px; text-align: center; color: var(--ink-mute); font-size: 14px; }
+
+.rank-list { list-style: none; margin: 0; padding: 0; }
+
+.rank-list li {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 12px;
+  border-radius: 11px;
+  margin-bottom: 6px;
+  background: var(--card-alt);
+  transition: background .18s;
+}
+
+.rank-list li.me {
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange-line);
+}
+
+.rank-list .rk { font-size: 15px; font-weight: 800; width: 26px; flex-shrink: 0; text-align: center; }
+.rank-list .nm { flex: 1; font-size: 14.5px; font-weight: 700; color: var(--ink);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rank-list .sc {
+  font-size: 11.5px; color: var(--ink-soft);
+  background: #fff; padding: 2px 8px; border-radius: 12px;
+  border: 1px solid var(--line); flex-shrink: 0;
+}
+.rank-list .pt { font-size: 15px; font-weight: 900; color: var(--orange-dark);
+                 font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 42px; text-align: right; }
+.rank-list .acc {
+  font-size: 11.5px; font-weight: 700; color: var(--ink-soft);
+  background: #fff; padding: 2px 7px; border-radius: 12px;
+  border: 1px solid var(--line); flex-shrink: 0; font-variant-numeric: tabular-nums;
+}
+
+.rank-err {
+  margin: 10px 16px 0; padding: 9px 12px;
+  border-radius: 10px; font-size: 12.5px; font-weight: 600; line-height: 1.5;
+  background: var(--wrong-dim, #FEE2E2); color: #991B1B; border: 1.5px solid #FCA5A5;
+}
+
+.my-rank {
+  margin-top: 14px; padding: 13px 15px;
+  border-radius: 12px;
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange-line);
+  font-size: 13.5px; color: var(--orange-dark); font-weight: 600;
+  text-align: center;
+}
+.my-rank b { font-size: 19px; font-weight: 900; }
+
+.drawer-foot {
+  flex-shrink: 0;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+}
+.drawer-foot details { margin-bottom: 10px; }
+.drawer-foot summary {
+  cursor: pointer; font-size: 12.5px; font-weight: 700;
+  color: var(--ink-soft); padding: 6px 0; list-style: none;
+}
+.drawer-foot summary::marker { content: '▸ '; }
+.drawer-foot summary:hover { color: var(--orange-dark); }
+
+.how-list {
+  margin: 6px 0 10px; padding-left: 20px;
+  font-size: 12.5px; color: var(--ink-soft); line-height: 1.75;
+}
+
+/* ── 結果頁的分數 ── */
+.result-points {
+  font-size: 34px; font-weight: 900;
+  color: var(--orange-dark);
+  margin-bottom: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+
+
+/* ═══════════════════════════════════════════════
+   進入課程：PIN + 橫向資料欄
+   ═══════════════════════════════════════════════ */
+
+.brand-mark {
+  width: 52px; height: 52px;
+  margin: 0 auto 12px;
+  display: grid; place-items: center;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #F97316 0%, #FB923C 100%);
+  color: #fff;
+  font-size: 15px; font-weight: 900; letter-spacing: .04em;
+  box-shadow: 0 5px 16px rgba(249, 115, 22, .3);
+}
+.login-brand p { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+
+/* ── PIN 大輸入框 ── */
+.pin-block { margin-bottom: 20px; }
+.pin-block label {
+  display: block; margin-bottom: 8px;
+  font-size: 13.5px; font-weight: 700; color: var(--ink-mid);
+  text-align: center;
+}
+.pin-input {
+  width: 100%;
+  height: 68px;
+  padding: 0 12px;
+  border: 2.5px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--card-alt);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 38px; font-weight: 800;
+  letter-spacing: .34em;
+  text-align: center;
+  text-indent: .34em;          /* 抵銷 letter-spacing 造成的偏移 */
+  transition: border-color .18s, box-shadow .18s;
+  appearance: none; -webkit-appearance: none;
+}
+.pin-input::placeholder { color: var(--ink-mute); letter-spacing: .34em; }
+.pin-input:focus {
+  outline: none;
+  border-color: var(--orange);
+  background: #fff;
+  box-shadow: 0 0 0 4px var(--orange-soft);
+}
+.pin-hint {
+  margin: 9px 0 0;
+  font-size: 12.5px; color: var(--ink-soft);
+  text-align: center;
+}
+
+/* ── 橫向欄位（Class No. + Name 同一行）── */
+.row-fields {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;   /* 班號窄、姓名寬 */
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.row-fields .field { margin-bottom: 16px; }
+
+/* 窄螢幕（iPad 直向）時仍保持橫向，只是比例更平均 */
+@media (max-width: 380px) {
+  .row-fields { grid-template-columns: 1fr 1fr; gap: 9px; }
+}
+
+/* ── 錯誤訊息 ── */
+.join-err {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: var(--r);
+  background: var(--wrong-dim);
+  border: 1.5px solid #F5B5B5;
+  color: #B91C1C;
+  font-size: 13.5px; font-weight: 600;
+  line-height: 1.55;
+  text-align: center;
+}
+
+/* ═══════════════════════════════════════════════
+   關卡指示（Level 1 of 3）
+   ★ 讓學生知道這個詞還有幾關要過，Progressive 才有感
+   ═══════════════════════════════════════════════ */
+.lv-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: var(--orange-soft);
+  border: 1.5px solid var(--orange-line);
+  color: var(--orange-dark);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: .01em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
