@@ -24,13 +24,22 @@ const OK_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/g
 
 /**
  * 讀取 File → 縮圖 → 回傳 data URL。
+ * @param {File} file
+ * @param {{maxEdge?:number, quality?:number}} [opts]
+ *   ★ 2026-11-20：maxEdge 可調。
+ *     圖片彈窗裡要先「裁成正方形」再存，裁切會丟掉一大塊面積，
+ *     如果先把原圖壓到 400 再裁，正方形往往只剩 200px，投影到教室大屏就糊了。
+ *     所以彈窗那條路徑用 800 當來源，裁完再輸出 ≤400 的方圖 ——
+ *     存進 Firestore 的大小不變，但清晰度明顯較好。
  * @returns {Promise<string>} data URL
  */
-export async function fileToDataUrl(file) {
+export async function fileToDataUrl(file, opts = {}) {
   if (!file) throw new Error('No file');
   if (!OK_TYPES.includes(file.type)) {
     throw new Error('PNG, JPG, WEBP or GIF only');
   }
+  const maxEdge = opts.maxEdge || IMAGE_MAX_EDGE;
+  const quality = opts.quality || IMAGE_QUALITY;
 
   // SVG 是向量圖，沒有「原圖」概念，直接讀
   if (file.type === 'image/svg+xml') {
@@ -40,8 +49,8 @@ export async function fileToDataUrl(file) {
   const dataUrl = await readAsDataUrl(file);
   const img = await loadImage(dataUrl);
 
-  // ★ 算縮圖尺寸：維持長寬比，最長邊不超過 IMAGE_MAX_EDGE
-  const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(img.width, img.height));
+  // ★ 算縮圖尺寸：維持長寬比，最長邊不超過 maxEdge
+  const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
   const w = Math.max(1, Math.round(img.width * scale));
   const h = Math.max(1, Math.round(img.height * scale));
 
@@ -58,7 +67,7 @@ export async function fileToDataUrl(file) {
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, w, h);
 
-  const out = canvas.toDataURL('image/jpeg', IMAGE_QUALITY);
+  const out = canvas.toDataURL('image/jpeg', quality);
 
   // ★ 還是太大就再降品質一次（避免撞 Firestore 1MB 上限）
   if (out.length > 900_000) {

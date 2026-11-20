@@ -101,6 +101,15 @@ const STRINGS = {
     'game.listen': 'Listen to the sentence',
     'game.retrying': 'to review',
     'game.pendingReview': '{n} waiting',
+    'game.points': 'Points',
+
+    // ── 同步徽章（outbox.js 透過 setBadgeTranslator 注入 t）──
+    'sync.ok': 'Synced',
+    'sync.pending': 'Saving {n}',
+    'sync.error': 'Upload failed',
+    'sync.okTitle': 'All answers have been uploaded to your teacher.',
+    'sync.pendingTitle': '{n} answers are saved on this device and waiting to upload.\nClosing the tab will not lose them — they upload automatically when the connection returns.',
+    'sync.errorTitle': 'Answers are saved on this device but cannot reach the server. Check the connection, or ask your teacher to check the Security Rules.',
 
     // ── 結算 ──
     'done.title': 'Well done!',
@@ -212,6 +221,15 @@ const STRINGS = {
     'game.listen': '讀出例句',
     'game.retrying': '要複習',
     'game.pendingReview': '{n} 個待複習',
+    'game.points': '分數',
+
+    // ── 同步徽章（outbox.js 透過 setBadgeTranslator 注入 t）──
+    'sync.ok': '已上傳',
+    'sync.pending': '儲存中 {n}',
+    'sync.error': '上傳失敗',
+    'sync.okTitle': '所有作答都已上傳到老師的後台。',
+    'sync.pendingTitle': '{n} 筆作答已安全保存在這台裝置，正在等待上傳。\n關閉分頁不會遺失，網絡恢復後會自動上傳。',
+    'sync.errorTitle': '作答資料保存在這台裝置，但無法傳到伺服器。請確認網絡，或請老師檢查 Security Rules。',
 
     // ── 結算 ──
     'done.title': '完成！',

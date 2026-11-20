@@ -21,7 +21,7 @@ export const FIREBASE_VERSION = '12.19.0';
  *
  * ★ 改任何程式碼之後，**務必把這裡的數字 +1**，否則使用者不會拿到新檔案。
  */
-export const BUILD_ID = '2026-10-21-r49';
+export const BUILD_ID = '2026-11-20-r56';
 
 // ── Firebase 設定 ──
 // ★ storageBucket 雖然填了，但我們**不使用 Cloud Storage**
@@ -58,7 +58,7 @@ export const PCS_CONFIG = {
     sound: true,
     speech: true,
     lang: 'en-GB',             // 英式發音（對齊 BrE 拼寫）
-    speechRate: 0.85,          // 小學生跟讀，語速放慢
+    speechRate: 0.78,          // 小學生跟讀，語速放慢（2026-11-20：0.85 → 0.78）
   },
 
   /** Firestore collection 名稱 */
@@ -100,7 +100,7 @@ export const STORAGE_PREFIX = 'pcs.';
  *   「修好了但還是一樣」都是這個原因，不是程式邏輯問題。
  *
  * 用法：放在每個 HTML 的 <head>，第一個 inline <script>：
- *   if (window.__pcsCheckBuild) window.__pcsCheckBuild('2026-10-21-r49');
+ *   if (window.__pcsCheckBuild) window.__pcsCheckBuild('2026-11-20-r56');
  *
  * 行為：版本不一致 → 記錄新版本 → 強制重整（繞過 bfcache）。
  *   已一致 → 什麼都不做，不影響正常瀏覽。

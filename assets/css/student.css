@@ -967,6 +967,105 @@
   font-size: 12.5px; color: var(--ink-soft); line-height: 1.75;
 }
 
+/* ═══════════════════════════════════════════════
+   ★ 2026-11-20：常駐排行（比賽模式）
+   ───────────────────────────────────────────────
+   老師要求「排行榜常亮、顯示在旁邊、實時更新」。
+   作法和抽屜同一個 DOM，只換姿態：
+     · body.rank-pinned  →  不遮罩、不滑入、固定佔位
+     · 寬螢幕（≥880）→ 右側窄欄，body 讓出 250px
+     · 窄螢幕（<880，iPad 直向）→ 底部橫條，body 讓出 108px
+   不遮罩是關鍵：抽屜的 backdrop 會擋住答題，常駐模式一定不能有。
+   ═══════════════════════════════════════════════ */
+@media (min-width: 880px) {
+  body.rank-pinned { padding-right: 250px; }
+
+  body.rank-pinned .drawer-backdrop { display: none !important; }
+
+  body.rank-pinned .drawer {
+    top: 76px; right: 10px; bottom: 12px;
+    width: 230px;
+    border: 1.5px solid var(--line);
+    border-radius: 16px;
+    box-shadow: 0 10px 28px rgba(28, 22, 16, .10);
+    animation: none;
+    z-index: 60;
+  }
+
+  body.rank-pinned .drawer-head { padding: 10px 12px 9px; }
+  body.rank-pinned .drawer-head h2 { font-size: 13.5px; }
+  body.rank-pinned .drawer-close { width: 28px; height: 28px; font-size: 13px; }
+
+  body.rank-pinned .drawer-body { padding: 8px; }
+
+  body.rank-pinned .rank-list li {
+    padding: 7px 9px; gap: 8px; margin-bottom: 4px; border-radius: 9px;
+  }
+  body.rank-pinned .rank-list .rk { width: 22px; font-size: 13px; }
+  body.rank-pinned .rank-list .nm { font-size: 13px; }
+  body.rank-pinned .rank-list .pt { font-size: 13px; min-width: 34px; }
+  /* 窄欄塞不下四個欄位 → 只留 名次 / 名字 / 分數 */
+  body.rank-pinned .rank-list .sc,
+  body.rank-pinned .rank-list .acc { display: none; }
+
+  body.rank-pinned .drawer-foot { display: none; }
+  body.rank-pinned .my-rank { margin-top: 8px; padding: 9px; font-size: 12px; }
+  body.rank-pinned .my-rank b { font-size: 15px; }
+}
+
+@media (max-width: 879px) {
+  body.rank-pinned {
+    padding-bottom: calc(104px + env(safe-area-inset-bottom));
+  }
+
+  body.rank-pinned .drawer-backdrop { display: none !important; }
+
+  body.rank-pinned .drawer {
+    top: auto; left: 8px; right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    width: auto; height: 92px;
+    border: 1.5px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 -6px 20px rgba(28, 22, 16, .10);
+    animation: none;
+    z-index: 60;
+    flex-direction: row;
+  }
+
+  body.rank-pinned .drawer-head {
+    padding: 8px 6px 8px 10px;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+  }
+  body.rank-pinned .drawer-head h2 { font-size: 12px; }
+  body.rank-pinned .drawer-close { margin: 0; width: 26px; height: 26px; font-size: 12px; }
+
+  body.rank-pinned .drawer-body {
+    display: flex; align-items: center;
+    padding: 8px 10px;
+    overflow-x: auto; overflow-y: hidden;
+  }
+
+  body.rank-pinned .rank-list { display: flex; gap: 6px; }
+  body.rank-pinned .rank-list li {
+    flex: 0 0 auto;
+    margin: 0; padding: 7px 10px; gap: 6px;
+  }
+  body.rank-pinned .rank-list .sc,
+  body.rank-pinned .rank-list .acc { display: none; }
+  body.rank-pinned .rank-list .nm { max-width: 92px; font-size: 13px; }
+  body.rank-pinned .rank-list .pt { min-width: 0; font-size: 13px; }
+
+  body.rank-pinned .drawer-foot,
+  body.rank-pinned .my-rank,
+  body.rank-pinned .rank-err { display: none; }
+}
+
+
 /* ── 結果頁的分數 ── */
 .result-points {
   font-size: 34px; font-weight: 900;

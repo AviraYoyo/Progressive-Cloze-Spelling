@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-10-21-r49';
+  var BUILD = '2026-11-20-r56';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,7 +32,7 @@
 <title>Teacher Console · Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r49">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-20-r56">
 <style>
 body {
   min-height: 100dvh;
@@ -289,9 +289,9 @@ window.addEventListener('unhandledrejection', function (e) {
 import {
   signInWithEmail, signUpWithEmail, signInWithGoogle, currentHost,
   sendPasswordReset, checkPassword, enablePersistentSignIn,
-} from './assets/js/auth.js?v=2026-10-21-r49';
-import { initLang, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-21-r49';
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r49';
+} from './assets/js/auth.js?v=2026-11-20-r56';
+import { initLang, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-20-r56';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-20-r56';
 
 /**
  * ★★ 部署網域預檢（2026-10-21）
@@ -363,6 +363,29 @@ initLang();
 applyI18n(document);
 mountLangToggle(document.getElementById('langSlot'), { onChange: () => applyI18n(document) });
 
+/**
+ * ★ 2026-10-21：分享連結透傳
+ *   admin.html 發現未登入時會把 ?share=1160 帶到這裡；登入成功後要原樣帶回去。
+ *   只認 4 位數字 —— 目標由程式碼寫死，使用者無法控制跳轉位址，
+ *   所以沒有開放重定向（open redirect）的風險，不需要 ?next= 那套白名單校驗。
+ */
+const SHARE = (() => {
+  const v = (new URLSearchParams(location.search).get('share') || '').trim();
+  return /^\d{4}$/.test(v) ? v : '';
+})();
+const NEXT = SHARE ? `admin.html?share=${encodeURIComponent(SHARE)}` : 'admin.html';
+
+// ★ 2026-10-21：同步寫一份到 localStorage + sessionStorage。
+//   分享連結的流程會經過「登入 → 跳回後台」，中間任何一步（popup、build guard
+//   重載、瀏覽器擴展）都可能把 query 弄丟，後台就會「直接進去、不詢問」。
+//   有這份記錄，admin.html 就算收不到 ?share= 也能補回來。
+//   ★ Safari 隱私模式會讓 localStorage 寫入拋錯，所以 sessionStorage 也存一份。
+if (SHARE) {
+  const raw = JSON.stringify({ pin: SHARE, at: Date.now() });
+  try { localStorage.setItem('pcs.pendingShare', raw); } catch { /* 忽略 */ }
+  try { sessionStorage.setItem('pcs.pendingShare.ss', raw); } catch { /* 忽略 */ }
+}
+
 // ★ 網域預檢：打開頁面就告訴老師「你的網域還沒加進 Firebase 授權清單」
 //   （沒加的話 Google 登入一定失敗，但 Firebase 只會丟一句英文原文）
 checkAuthorizedDomain();
@@ -373,7 +396,7 @@ enablePersistentSignIn().then(async () => {
   try {
     const { initFirebase } = await import('./assets/js/firebase.js');
     const { auth } = await initFirebase({ signIn: false });
-    if (auth.currentUser) location.replace('admin.html');
+    if (auth.currentUser) location.replace(NEXT);
   } catch { /* 判斷不了就停在登入頁 */ }
 });
 
@@ -401,6 +424,11 @@ document.getElementById('backToSignin').addEventListener('click', () => switchTa
 const msg = document.getElementById('msg');
 function showMsg(html, kind = 'error') { msg.innerHTML = html; msg.className = `msg ${kind} show`; }
 function hideMsg() { msg.className = 'msg'; }
+
+// ★ 有分享連結時先說明「登入後會發生什麼」，免得老師以為走錯頁
+if (SHARE) {
+  showMsg('Sign in to add the shared assignment to your account.', 'info');
+}
 
 /**
  * Firebase Console 設定指引。
@@ -488,7 +516,7 @@ document.getElementById('formSignin').addEventListener('submit', async (e) => {
   if (r.ok) {
     showMsg('Signed in. Opening the console…', 'success');
     await waitAuthPersisted();
-    setTimeout(() => { location.href = 'admin.html'; }, 300);
+    setTimeout(() => { location.href = NEXT; }, 300);
   } else if (r.cancelled) {
     hideMsg();
   } else {
@@ -505,7 +533,7 @@ document.getElementById('google-btn').addEventListener('click', async () => {
   if (r.ok) {
     showMsg('Signed in. Opening the console…', 'success');
     await waitAuthPersisted();
-    setTimeout(() => { location.href = 'admin.html'; }, 300);
+    setTimeout(() => { location.href = NEXT; }, 300);
   } else if (r.cancelled) {
     hideMsg();
   } else {
@@ -534,7 +562,7 @@ document.getElementById('formSignup').addEventListener('submit', async (e) => {
     // ★ 註冊即完成，不需要驗證信。
     showMsg('Account created. Opening the console…', 'success');
     await waitAuthPersisted();
-    setTimeout(() => { location.href = 'admin.html'; }, 400);
+    setTimeout(() => { location.href = NEXT; }, 400);
   } else {
     showAuthError(r.code, r.error || 'Registration failed');
   }

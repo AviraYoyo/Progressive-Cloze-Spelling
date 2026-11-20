@@ -206,6 +206,42 @@ function scheduleFlush(delay = 800) {
 // UI 徽章
 // ─────────────────────────────────────────────────────────────
 /**
+ * ★ 為什麼用「注入 t」而不是 import i18n.js？
+ *
+ *   各頁面用 `i18n.js?v=rNN` 載入模組，若這裡寫 `import './i18n.js'`，
+ *   瀏覽器會視為**另一個 URL → 另一個模組實例**：那個實例的 `current`
+ *   永遠停在初始值、`initLang()` 從沒在它身上跑過 → 切語言完全無效。
+ *   而把 `?v=rNN` 硬編碼進本檔，下次升版漏改就會靜默退回英文（最難查）。
+ *
+ *   所以：本檔不依賴 i18n。頁面載入後呼叫 setBadgeTranslator(t) 注入，
+ *   未注入時用內建英文兜底（安全失敗）。
+ */
+let translate = null;
+let lastBadge = { n: 0, state: 'ok' };
+
+const FALLBACK = {
+  'sync.ok': 'Synced',
+  'sync.pending': 'Saving {n}',
+  'sync.error': 'Upload failed',
+  'sync.okTitle': 'All answers have been uploaded to your teacher.',
+  'sync.pendingTitle': '{n} answers are saved on this device and waiting to upload.\nClosing the tab will not lose them — they upload automatically when the connection returns.',
+  'sync.errorTitle': 'Answers are saved on this device but cannot reach the server. Check the connection, or ask your teacher to check the Security Rules.',
+};
+
+function T(key, vars) {
+  if (translate) return translate(key, vars);
+  let s = FALLBACK[key] ?? key;
+  for (const [k, v] of Object.entries(vars || {})) s = s.replaceAll(`{${k}}`, String(v));
+  return s;
+}
+
+/** ★ 由頁面注入 t()：注入後立刻重畫（ESM 求值順序讓本檔早於 initLang 執行） */
+export function setBadgeTranslator(fn) {
+  translate = typeof fn === 'function' ? fn : null;
+  updateBadge(lastBadge.n, lastBadge.state);
+}
+
+/**
  * 更新同步徽章。
  * ★ 「N 筆待上傳」對老師來說是看不懂的字眼。
  *   改成直接說明：資料已安全存在這台裝置、正在等上傳。
@@ -213,6 +249,7 @@ function scheduleFlush(delay = 800) {
  *   會讓人以為資料遺失了。
  */
 function updateBadge(n, state = 'ok') {
+  lastBadge = { n, state };
   const badge = document.getElementById('syncBadge');
   const text = document.getElementById('syncText');
   if (!badge || !text) return;
@@ -220,16 +257,22 @@ function updateBadge(n, state = 'ok') {
   badge.classList.remove('pending', 'error');
   if (state === 'error') {
     badge.classList.add('error');
-    text.textContent = '上傳失敗';
-    badge.title = '作答資料保存在這台裝置，但無法傳到伺服器。請確認網絡，或請老師檢查 Security Rules。';
+    text.textContent = T('sync.error');
+    badge.title = T('sync.errorTitle');
   } else if (n > 0) {
     badge.classList.add('pending');
-    text.textContent = `儲存中 ${n}`;
-    badge.title = `${n} 筆作答已安全保存在這台裝置，正在等待上傳。\n關閉分頁不會遺失，網絡恢復後會自動上傳。`;
+    text.textContent = T('sync.pending', { n });
+    badge.title = T('sync.pendingTitle', { n });
   } else {
-    text.textContent = '已上傳';
-    badge.title = '所有作答都已上傳到老師的後台。';
+    text.textContent = T('sync.ok');
+    badge.title = T('sync.okTitle');
   }
+}
+
+/** 用真實待傳筆數重畫（頁面啟動時呼叫一次，不必等 20 秒定時器） */
+export async function refreshBadge() {
+  const n = await pendingCount();
+  updateBadge(n, n > 0 ? 'pending' : 'ok');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -237,11 +280,28 @@ function updateBadge(n, state = 'ok') {
 // ─────────────────────────────────────────────────────────────
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => { backoff = 2000; flush(); });
-  window.addEventListener('offline', () => updateBadge(1, 'pending'));
+  // ★ 之前固定寫 updateBadge(1,'pending') → 0 筆待傳時也會顯示「儲存中 1」。
+  //   離線只是「可能傳不上去」，不代表真的有待傳資料。
+  window.addEventListener('offline', async () => {
+    const n = await pendingCount();
+    updateBadge(n, n > 0 ? 'pending' : 'ok');
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) flush();
   });
+
+  // ★ 切換語言 → 立刻用同一份狀態重畫（不必等下一次 flush）
+  document.addEventListener('pcs:lang-changed', () => {
+    updateBadge(lastBadge.n, lastBadge.state);
+  });
+
+  // 首次進入：把徽章從 HTML 的佔位文字換成真實狀態
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { refreshBadge(); }, { once: true });
+  } else {
+    refreshBadge();
+  }
 
   // 課堂中每 20 秒背景同步
   setInterval(() => { if (navigator.onLine && document.visibilityState === 'visible') flush(); }, 20_000);
@@ -264,4 +324,5 @@ export async function recoverMirror() {
 
 export const outbox = {
   enqueue, flush, flushNow, pendingCount, recoverMirror, drainMirror,
+  setBadgeTranslator, refreshBadge,
 };

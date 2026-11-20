@@ -10,7 +10,25 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-10-21-r49';
+  var BUILD = '2026-11-20-r56';
+  // ★ 公開給 module 與 console 用（版本排查時第一個要看的東西）
+  window.__PCS_BUILD = BUILD;
+
+  /* ★ 2026-10-21：分享 PIN 在這裡就先抓一份，不依賴 module。
+     症狀：Safari 上「登入後回到後台，網址明明還帶著 ?share=1160，
+     卻完全沒有彈出詢問」。module 裡那一份要等 module 跑到那一行才算數，
+     只要中間任何一行在 Safari 拋錯，整個分享流程就靜靜消失。
+     這裡是最外層 classic script —— 除了整頁 JS 全死，否則一定執行。 */
+  try {
+    var sm = /[?&]share=(\d{4})(?:&|#|$)/.exec(location.search || '');
+    if (sm) {
+      window.__PCS_SHARE_PIN = sm[1];
+      var rawShare = JSON.stringify({ pin: sm[1], at: Date.now() });
+      try { localStorage.setItem('pcs.pendingShare', rawShare); } catch (e2) { /* 略 */ }
+      try { sessionStorage.setItem('pcs.pendingShare.ss', rawShare); } catch (e2) { /* 略 */ }
+    }
+  } catch (e1) { /* 略 */ }
+
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,7 +50,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r49">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-20-r56">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -110,7 +128,7 @@ body { min-height: 100dvh; background: #F7F6F5; }
   left: 50%;
   bottom: calc(22px + env(safe-area-inset-bottom));
   transform: translate(-50%, 14px);
-  z-index: 120;
+  z-index: 400;                 /* ★ 必須高於彈窗（300/320/340），否則彈窗裡的提示會看不見 */
   max-width: min(520px, calc(100vw - 32px));
   padding: 13px 20px;
   border-radius: 999px;
@@ -379,8 +397,8 @@ tr:hover td { background: #FFFBF7; }
 
 /* ══ Assignments ══ */
 .asg-form { margin-top: 16px; }
-/* ★ 2026-10-16：加了 Class 欄位 → 三列（名稱 / PIN / 班別） */
-.asg-row { display: grid; grid-template-columns: 1fr 130px 110px; gap: 12px; }
+/* 兩列（名稱 / PIN）—— 2026-10-21 移除了 Class 欄位 */
+.asg-row { display: grid; grid-template-columns: 1fr 130px; gap: 12px; }
 .asg-row .field { margin-bottom: 14px; }
 .asg-pin label small, .field label small { font-weight: 500; color: var(--ink-mute); }
 
@@ -622,6 +640,81 @@ padding-top: 12px; border-top: 1px dashed var(--line); }
   display: block; max-width: 100%; max-height: 210px;
   border-radius: 8px;
 }
+
+/* ══════════════════════════════════════════════
+   ★ 2026-11-20：方形取景框（裁剪）
+   ──────────────────────────────────────────────
+   做法是「把圖拖到框裡」而不是「拉四個角」：
+   小學老師用滑鼠/手指把主體推到方框中央，比操作八個把手直覺得多，
+   而且滑鼠、觸控板、iPad 手指三種裝置都是同一個手勢（拖）。
+   框本身固定 1:1 —— 學生的圖片欄就是正方形，裁成別的形狀一定會變形。
+   ══════════════════════════════════════════════ */
+.imgm-stage {
+  position: relative;
+  width: min(300px, 100%);
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 12px;
+  background:
+    repeating-conic-gradient(#eceae7 0% 25%, #f7f6f5 0% 50%) 50% / 18px 18px;
+  cursor: grab;
+  touch-action: none;              /* iPad：拖圖不要連頁面一起滾 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.imgm-stage:active { cursor: grabbing; }
+.imgm-stage > img {
+  position: absolute; left: 0; top: 0;
+  max-width: none; max-height: none;
+  border-radius: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.imgm-frame {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  border: 2px solid rgba(255, 255, 255, .92);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .28);
+  border-radius: 12px;
+}
+/* 四角 —— 加深色描邊：橙色的圖上如果只用橙色角標，會完全看不見 */
+.imgm-frame .cf {
+  position: absolute; width: 16px; height: 16px;
+  border: 3px solid #F97316;
+  filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, .55));
+}
+.imgm-frame .cf.tl { left: 6px; top: 6px; border-right: 0; border-bottom: 0; border-radius: 4px 0 0 0; }
+.imgm-frame .cf.tr { right: 6px; top: 6px; border-left: 0; border-bottom: 0; border-radius: 0 4px 0 0; }
+.imgm-frame .cf.bl { left: 6px; bottom: 6px; border-right: 0; border-top: 0; border-radius: 0 0 0 4px; }
+.imgm-frame .cf.br { right: 6px; bottom: 6px; border-left: 0; border-top: 0; border-radius: 0 0 4px 0; }
+/* 三分線（提示構圖，不搶眼） */
+.imgm-frame::before,
+.imgm-frame::after {
+  content: ''; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(to right, transparent 33.2%, rgba(255,255,255,.35) 33.2% 33.5%, transparent 33.5% 66.4%, rgba(255,255,255,.35) 66.4% 66.7%, transparent 66.7%),
+    linear-gradient(to bottom, transparent 33.2%, rgba(255,255,255,.35) 33.2% 33.5%, transparent 33.5% 66.4%, rgba(255,255,255,.35) 66.4% 66.7%, transparent 66.7%);
+}
+.imgm-frame::after { display: none; }
+
+.imgm-zoomrow {
+  display: flex; align-items: center; gap: 8px;
+  width: min(300px, 100%);
+}
+.imgm-zoomrow .zl { font-size: 15px; font-weight: 800; color: var(--ink-mute); }
+.imgm-zoomrow input[type=range] {
+  flex: 1; accent-color: var(--orange); height: 22px;
+}
+.imgm-zoomrow .imgm-reset,
+.imgm-zoomrow .imgm-change {
+  font-size: 11.5px; font-weight: 700;
+  padding: 4px 9px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--ink-soft); cursor: pointer;
+}
+.imgm-zoomrow button:hover { border-color: var(--orange-line); color: var(--orange-dark); }
+.imgm-hint { font-size: 11.5px; color: var(--ink-mute); margin: -2px 0 0; text-align: center; }
 .imgm-meta { font-size: 11.5px; color: var(--ink-mute); font-variant-numeric: tabular-nums; }
 .imgm-meta b { color: var(--correct); font-weight: 800; }
 .imgm-busy { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-soft); }
@@ -703,6 +796,58 @@ padding-top: 12px; border-top: 1px dashed var(--line); }
 .pinbig-foot { display: flex; align-items: center; gap: 8px; }
 .pinbig-foot .grow { flex: 1; }
 
+/* ══════════════════════════════════════════════
+   ★ 2026-10-21：通用對話框（分享 / 匯入作業）
+   沿用 .imgm-* 的視覺語言，但層級更高（壓在大 PIN 之上）。
+   ══════════════════════════════════════════════ */
+.dlg-backdrop {
+  position: fixed; inset: 0; z-index: 340;
+  background: rgba(28,22,16,.46);
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+  animation: imgm-fade .13s ease-out;
+}
+.dlg-backdrop[hidden] { display: none !important; }
+.dlg-card {
+  width: 100%; max-width: 460px;
+  background: var(--card); border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(28,22,16,.3);
+  padding: 20px 22px 18px;
+  display: flex; flex-direction: column; gap: 12px;
+  animation: imgm-pop .16s cubic-bezier(.2,.8,.3,1);
+}
+.dlg-head { display: flex; align-items: flex-start; gap: 10px; }
+.dlg-title { margin: 0; font-size: 17px; font-weight: 800; color: var(--ink); flex: 1; line-height: 1.35; }
+.dlg-x {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+  border: 1px solid var(--line); background: var(--card);
+  font-size: 20px; line-height: 1; color: var(--ink-mute);
+  cursor: pointer; transition: background .12s, color .12s;
+}
+.dlg-x:hover { background: var(--card-alt); color: var(--ink); }
+.dlg-sub { margin: -4px 0 0; font-size: 13px; color: var(--ink-soft); line-height: 1.6; }
+.dlg-note {
+  margin: 0; font-size: 12.5px; line-height: 1.65; color: var(--ink-soft);
+  background: var(--card-alt); border: 1px solid var(--line);
+  border-radius: var(--r); padding: 10px 12px;
+}
+/* 兩列 key / value */
+.dlg-kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+.dlg-kv dt { color: var(--ink-mute); font-weight: 600; white-space: nowrap; }
+.dlg-kv dd { margin: 0; color: var(--ink); font-weight: 700; text-align: right; }
+.dlg-kv dd.mono { font-family: var(--font-mono, monospace); letter-spacing: .06em; }
+.dlg-field { display: flex; gap: 8px; }
+.dlg-field input {
+  flex: 1 1 200px; min-width: 0; height: 40px; padding: 0 12px;
+  border: 1.5px solid var(--line); border-radius: var(--r);
+  background: var(--card-alt); color: var(--ink-soft);
+  font-family: var(--font-mono, monospace); font-size: 12.5px;
+}
+.dlg-msg { margin: 0; font-size: 12.5px; font-weight: 700; color: #991B1B; line-height: 1.6; }
+.dlg-msg:empty { display: none; }
+.dlg-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dlg-foot .grow { flex: 1; }
+
 /* ══ 可收起的區塊（Errors by sound pattern / Student results）══
    預設全部收起 —— 這兩張表很長，鋪在畫面上會把其他內容推很遠。
    老師點標題才展開。與 .per-asg-card 用同一套 caret 語言。 */
@@ -727,6 +872,33 @@ padding-top: 12px; border-top: 1px dashed var(--line); }
 .sub-h { font-size: 12.5px; font-weight: 800; color: var(--ink-mid);
 margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
 .sub-h:first-child { margin-top: 0; }
+
+/* ★ 2026-11-20：struggle 單詞用「題目的挖空形式」顯示（gla_ _es）
+   等寬字 + 保留底線 → 老師能一眼數出是第幾格錯，
+   比顯示完整單詞再自己挖空快得多。 */
+.td-struggle { min-width: 190px; }
+.cloze-word {
+  display: inline-block;
+  margin: 1px 6px 1px 0;
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: var(--card-alt, #F7F6F5);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  white-space: pre;
+  color: var(--ink);
+}
+.cloze-word .cw-n {
+  margin-left: 5px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: #B45309;
+}
 
 /* Create assignment 按鈕：與 .btn-s 同一設計語言 ══ */
 .asg-submit {
@@ -773,7 +945,18 @@ margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
   color: #fff;
   text-align: center;
   box-shadow: 0 8px 26px rgba(249,115,22,.30);
+  /* ★ 2026-10-21：這塊現在是 <button>（點一下放大 PIN）。
+     font: inherit 必須有 —— 否則 button 的默認字體會換掉 .dp-label 的字距。 */
+  font: inherit;
+  border: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: filter .12s, transform .12s, box-shadow .12s;
 }
+.dispatch-pin:hover { filter: brightness(1.05); box-shadow: 0 10px 30px rgba(249,115,22,.38); }
+.dispatch-pin:active { transform: scale(.985); }
+.dispatch-pin:focus-visible { outline: 3px solid var(--orange-soft); outline-offset: 3px; }
 .dp-label { display: block; font-size: 13px; font-weight: 800; opacity: .9;
             letter-spacing: .22em; text-transform: uppercase; }
 .dispatch-pin strong {
@@ -785,9 +968,9 @@ margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
 .dispatch-info { flex: 1; min-width: 0; }
 .dp-title { margin: 0 0 4px; font-size: 15px; font-weight: 800; color: var(--ink); }
 .dp-words { margin: 0 0 12px; font-size: 12.5px; color: var(--ink-soft); line-height: 1.6; }
-.dp-url { display: flex; gap: 8px; }
+.dp-url { display: flex; gap: 8px; flex-wrap: wrap; }
 .dp-url input {
-  flex: 1; height: 38px; padding: 0 12px;
+  flex: 1 1 240px; min-width: 0; height: 38px; padding: 0 12px;
   border: 1.5px solid var(--line); border-radius: var(--r);
   background: var(--card-alt); color: var(--ink-soft);
   font-family: var(--font-mono, monospace); font-size: 12.5px;
@@ -833,9 +1016,8 @@ margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
 .ai-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 @media (max-width: 640px) {
-  /* ★ 2026-10-16：三欄（名稱 / PIN / 班別）在窄屏改為兩列，
-     名稱獨佔一行、PIN 與班別並排 —— 原來只有兩欄所以寫 1fr 1fr。 */
-  .asg-row { grid-template-columns: 1fr 1fr; }
+  /* 窄屏：名稱獨佔一行，PIN 在下面一行（保持窄，不要撐滿） */
+  .asg-row { grid-template-columns: 1fr 110px; }
   .asg-row .field:first-child { grid-column: 1 / -1; }
   .dispatch { flex-direction: column; align-items: stretch; }
   .dispatch-pin { align-self: flex-start; }
@@ -900,16 +1082,6 @@ margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
           <label for="asgPin">PIN <small>(optional)</small></label>
           <input id="asgPin" type="text" inputmode="numeric" maxlength="4" placeholder="auto">
         </div>
-        <!-- ★ 2026-10-16 新增：班別。
-             以前建課完全沒寫 className，導致 assignment.className 恆為 ''，
-             學生端 ranking 的查詢 `where('className','==','')` 永遠匹配不到
-             → 班級排名對所有人都是空的（Bug 2）。
-             現在讓老師填一下；排名本身已改為優先按 PIN 分組（見 leaderboard.js），
-             這個欄位主要供後台 Results 的「按班別篩選」使用。 -->
-        <div class="field asg-class">
-          <label for="asgClass">Class <small>(optional)</small></label>
-          <input id="asgClass" type="text" maxlength="12" placeholder="e.g. P4A" autocomplete="off">
-        </div>
       </div>
 
       <!-- ★★ Advanced mode：預設關閉。老師勾選後，這份 assignment 會變成
@@ -951,16 +1123,22 @@ margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
   <div class="card" id="asgResultCard" hidden>
     <h2>Send this to your class</h2>
     <div class="dispatch">
-      <div class="dispatch-pin">
+      <!-- ★ 2026-10-21：PIN 塊改成按鈕 —— 點一下彈出超大 PIN（投影用）。
+           內部結構與字級完全沒變，只加了 button 的互動行為。 -->
+      <button type="button" class="dispatch-pin" id="dpPinBtn"
+              title="Click to show a large PIN for the projector"
+              aria-label="Show this PIN on the projector">
         <span class="dp-label">PIN</span>
         <strong id="dpPin">0000</strong>
-      </div>
+      </button>
       <div class="dispatch-info">
         <p class="dp-title" id="dpTitle"></p>
         <p class="dp-words" id="dpWords"></p>
         <div class="dp-url">
           <input id="dpUrl" type="text" readonly>
           <button class="btn-s" id="dpCopy">Copy link</button>
+          <button class="btn-s" id="dpOpen" type="button"
+                  title="Open the student join page in a new tab">Open</button>
         </div>
         <p class="dp-hint">Project this page on the board. Students type the PIN at
            <span id="dpSite"></span></p>
@@ -1248,25 +1426,115 @@ window.addEventListener('unhandledrejection', function (e) {
     window.__pcsFatal(r.message);
   }
 });
+
+/* ★ 2026-10-21：最後一道保險。
+   如果整個 module 根本沒載入（例如某個 assets/js/*.js 404、或網絡半通），
+   上面 module 內的看門狗不會執行 → 畫面會永遠停在「Checking your sign-in…」。
+   這裡用純 classic script 的計時器兜底，12 秒後直接給人按鈕。 */
+setTimeout(function () {
+  var gate = document.getElementById('authGate');
+  var shell = document.getElementById('appShell');
+  if (!gate || !shell) return;
+  if (getComputedStyle(gate).display === 'none') return;       // 已進後台
+  if (getComputedStyle(shell).display !== 'none') return;      // 已進後台
+  if (document.getElementById('gateReload')) return;           // module 的看門狗已處理
+  if (document.getElementById('pcsFatal')) return;             // 已顯示載入失敗
+  gate.innerHTML = '<div class="gate-err">'
+    + '<p><b>This page did not finish loading.</b></p>'
+    + '<p>Part of the app could not be downloaded. Check the connection, then reload. '
+    + 'If it keeps happening, ask the researcher to redeploy — a JavaScript file may be missing.</p>'
+    + '<p style="margin-top:14px">'
+    + '<button class="btn-s primary" type="button" onclick="location.reload()">Reload the page</button>'
+    + '</p></div>';
+}, 12000);
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r49';
-import { initFirebase } from './assets/js/firebase.js?v=2026-10-21-r49';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-10-21-r49';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-10-21-r49';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-10-21-r49';
-import { analyseItem } from './assets/js/phrase.js?v=2026-10-21-r49';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-10-21-r49';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-20-r56';
+import { initFirebase } from './assets/js/firebase.js?v=2026-11-20-r56';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-20-r56';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-20-r56';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-20-r56';
+import { analyseItem } from './assets/js/phrase.js?v=2026-11-20-r56';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-20-r56';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-10-21-r49';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-10-21-r49';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-10-21-r49';
+} from './assets/js/assignments.js?v=2026-11-20-r56';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-20-r56';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-20-r56';
+import {
+  shareUrl, sharePinFrom, buildCopyPayload, payloadBytes, MAX_COPY_BYTES, classifyImport,
+} from './assets/js/share.js?v=2026-11-20-r56';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
+
+// ★ 版本標記：方便一眼確認「載到的是不是最新版」
+//   在 DevTools console 打 __PCS_BUILD 就能看到；出問題時先問這個。
+console.info('[PCS] admin build =', window.__PCS_BUILD || '(unknown)');
+
+/**
+ * ★ 2026-10-21：分享連結（admin.html?share=1160）
+ *   只接受 4 位數字，其他值一律忽略並由 cleanShareParam() 清掉。
+ *   未登入時要一路透傳到 admin-login，登入後再回來。
+ *
+ * ★★ 為什麼還要落盤到 localStorage？
+ *   分享連結的典型流程是「先登入、再回來」，中間會經過 admin-login 的跳轉、
+ *   第三方登入的 popup、以及 build guard 的重載。任何一步把 query 弄丟，
+ *   老師就會看到「登入完直接進後台、完全沒有詢問」—— 而且很難查。
+ *   所以：只要在網址上看到 ?share=，立刻記一份在 localStorage；
+ *   下次載入如果網址上沒有，就從這裡補回來（30 分鐘後自動作廢）。
+ */
+const SHARE_PENDING_KEY = 'pcs.pendingShare';
+const SHARE_PENDING_SS_KEY = 'pcs.pendingShare.ss';
+const SHARE_PENDING_TTL = 30 * 60 * 1000;
+
+/**
+ * ★ 同時寫 localStorage 與 sessionStorage。
+ *   Safari 的隱私瀏覽 / 「阻擋所有 Cookie」會讓 localStorage 的寫入直接拋錯，
+ *   而 sessionStorage 在同一個分頁的跳轉中是可靠的 —— 多存一份成本近乎為零。
+ */
+function writePendingShare(pin) {
+  const raw = JSON.stringify({ pin: String(pin), at: Date.now() });
+  try { localStorage.setItem(SHARE_PENDING_KEY, raw); } catch { /* 忽略 */ }
+  try { sessionStorage.setItem(SHARE_PENDING_SS_KEY, raw); } catch { /* 忽略 */ }
+}
+function readPendingShare() {
+  for (const [store, key] of [[localStorage, SHARE_PENDING_KEY], [sessionStorage, SHARE_PENDING_SS_KEY]]) {
+    try {
+      const raw = store.getItem(key);
+      if (!raw) continue;
+      const o = JSON.parse(raw);
+      const pin = String(o?.pin || '');
+      if (!/^\d{4}$/.test(pin)) continue;
+      if (Date.now() - Number(o?.at || 0) > SHARE_PENDING_TTL) {
+        store.removeItem(key);
+        continue;
+      }
+      return pin;
+    } catch { /* 這個 store 不可用，試下一個 */ }
+  }
+  return '';
+}
+function clearPendingShare() {
+  try { localStorage.removeItem(SHARE_PENDING_KEY); } catch { /* 忽略 */ }
+  try { sessionStorage.removeItem(SHARE_PENDING_SS_KEY); } catch { /* 忽略 */ }
+}
+
+const SHARE_FROM_URL = sharePinFrom(location.search) || String(window.__PCS_SHARE_PIN || '');
+const SHARE_PIN = SHARE_FROM_URL || readPendingShare();
+if (SHARE_FROM_URL) writePendingShare(SHARE_FROM_URL);
+if (SHARE_PIN) console.info('[PCS] pending share PIN =', SHARE_PIN, SHARE_FROM_URL ? '(from URL)' : '(from storage)');
+
+/* ★ 2026-10-21：分享流程的狀態（宣告在這裡是為了在模組最早期就初始化好）
+     __sharePin      待處理的 PIN —— pageshow 從 bfcache 回來時可能補上新的
+     __shareBootDone 已經跑過（或正在跑）→ 防止重複彈窗
+   真正的排程／執行寫在 runShareBoot()，靠輪詢等老師就緒，
+   不再假設 window.__pcsOnReady 一定會被呼叫到。 */
+let __sharePin = SHARE_PIN;
+let __shareBootDone = false;
+scheduleShareBoot();
 
 // ── 認證閘門 ──
   const gate = document.getElementById('authGate');
@@ -1290,24 +1558,66 @@ const msg = document.getElementById('msg');
     }, 1200);
   }
 
+  /**
+   * ★ 2026-10-21：閘門卡住時給人話，不要讓老師對著轉圈發呆。
+   */
+  function showGateProblem(title, detail) {
+    gate.style.display = 'grid';
+    gate.innerHTML = `<div class="gate-err">
+      <p><b>${title}</b></p>
+      <p>${detail}</p>
+      <p style="margin-top:14px">
+        <button class="btn-s primary" type="button" id="gateReload">Reload the page</button>
+        <a href="admin-login.html${SHARE_PIN ? `?share=${encodeURIComponent(SHARE_PIN)}` : ''}"
+           style="margin-left:14px">Sign in again</a>
+      </p>
+    </div>`;
+    document.getElementById('gateReload')?.addEventListener('click', () => location.reload());
+  }
+
+  // ★ 看門狗：8 秒後畫面還停在閘門 → 一定有東西卡住了，直接給按鈕。
+  setTimeout(() => {
+    const shell = document.getElementById('appShell');
+    // ★ 用 computed style：appShell 的初始隱藏可能來自 CSS 而不是 inline style
+    const shellHidden = getComputedStyle(shell).display === 'none';
+    if (gate.style.display !== 'none' && shellHidden) {
+      showGateProblem('Sign-in is taking longer than usual.',
+        'The page could not finish checking your session — this is usually a slow connection '
+        + 'or a blocked request. Reload to try again.');
+    }
+  }, 8000);
+
   initFirebase({ signIn: false }).then(async ({ auth: a }) => {
+  /**
+   * ★ 2026-10-21：任何一步都不能讓畫面無限轉圈。
+   *   症狀：Google 登入後停在「Checking your sign-in…」永遠不動。
+   *   原因：下面每個 await 都沒有逾時，只要其中一個 promise 不 resolve
+   *   （authStateReady 在 popup 登入後的競態、或 Firestore 連線卡住），
+   *   閘門就永遠不會被隱藏。
+   */
+  const withTimeout = (p, ms) => Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT')), ms)),
+  ]);
+
   // ★ 保持登入：明確設為 local（關掉分頁、重新開瀏覽器都還在）。
   //   Google 登入與 Email 登入都適用。
   try {
     const { setPersistence, browserLocalPersistence } = await import(
       './assets/vendor/firebase/firebase-auth.js'
     );
-    await setPersistence(a, browserLocalPersistence);
-  } catch { /* 已在其他頁設定過就忽略 */ }
+    await withTimeout(setPersistence(a, browserLocalPersistence), 3000);
+  } catch { /* 逾時或已在其他頁設定過 → 忽略，不影響登入狀態 */ }
 
   // ★ 等 Firebase 把持久化登入狀態恢復完，再決定要不要跳回登入頁。
   //   直接用 onAuthStateChanged 的第一次回呼有時會拿到尚未恢復的 null，
   //   症狀就是「每次開後台都要重新 Sign in」。
   //   authStateReady() 會等到恢復完成（或解析出是未登入）才 resolve。
   let user = a.currentUser;
+  let authTimedOut = false;
   try {
     if (a.authStateReady) {
-      await a.authStateReady();
+      await withTimeout(a.authStateReady(), 6000);
       user = a.currentUser;
     } else {
       user = await new Promise((resolve) => {
@@ -1315,46 +1625,39 @@ const msg = document.getElementById('msg');
         const unsub = a.onAuthStateChanged((u) => { clearTimeout(t); unsub(); resolve(u); });
       });
     }
-  } catch { user = a.currentUser; }
+  } catch { authTimedOut = true; user = a.currentUser; }
 
   if (!user) {
-    location.replace('admin-login.html');
+    // ★ 逾時又讀不到使用者 → 不要自動跳轉（會在兩頁之間無限來回），
+    //   給老師一個手動按鈕，至少知道發生什麼事。
+    if (authTimedOut) {
+      showGateProblem('Sign-in is taking longer than usual.',
+        'Firebase did not finish checking your session. Try reloading; if it keeps happening, sign in again.');
+      return;
+    }
+    // ★ 再防一層「來回跳」：15 秒內已經被退回登入頁一次 → 這次不要再跳，
+    //   否則 admin.html ↔ admin-login.html 會互踢，畫面看起來就像卡住。
+    const BOUNCE = 'pcs.authBounce';
+    const last = Number(sessionStorage.getItem(BOUNCE) || 0);
+    if (Date.now() - last < 15000) {
+      showGateProblem('Your sign-in did not stick.',
+        'The browser did not keep the sign-in session. Click “Sign in again”; if it keeps happening, '
+        + 'allow cookies / site data for this site and make sure you are not in private browsing.');
+      return;
+    }
+    try { sessionStorage.setItem(BOUNCE, String(Date.now())); } catch { /* 忽略 */ }
+    // ★ 分享連結要帶著走，否則登入後就分不清「他本來是要加入某份作業」
+    location.replace('admin-login.html' + (SHARE_PIN ? `?share=${encodeURIComponent(SHARE_PIN)}` : ''));
     return;
   }
+  try { sessionStorage.removeItem('pcs.authBounce'); } catch { /* 忽略 */ }
 
-  try {
-    // 確認白名單（ teachers/{uid} ）
-    const { doc, getDoc } = await import(
-      './assets/vendor/firebase/firebase-firestore.js'
-    );
-    const { db } = await initFirebase({ signIn: false });
-    const snap = await getDoc(doc(db, PCS_CONFIG.collections.teachers, user.uid));
-    if (!snap.exists()) {
-      // 已登入但未登記：建立白名單（Email 與 Google 都需要，否則讀不到 exposures）
-      const { setDoc, serverTimestamp } = await import(
-        './assets/vendor/firebase/firebase-firestore.js'
-      );
-      await setDoc(doc(db, PCS_CONFIG.collections.teachers, user.uid), {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || user.email?.split('@')[0] || 'Teacher',
-        photoURL: user.photoURL || null,
-        method: (user.providerData?.[0]?.providerId === 'google') ? 'google' : 'password',
-        role: 'teacher',
-        createdAt: serverTimestamp(),
-        lastLoginAt: serverTimestamp(),
-      });
-    }
-  } catch (e) {
-    // ★ 不阻擋進入後台。白名單寫不進去（例如 rules 未 publish），
-    //   老師仍應看得到 Assignments；只是 Results 讀不到資料，
-    //   那時 Results 頁會自己診斷並提示。
-    console.warn('[PCS] whitelist check failed', e?.message);
-    showMsg(
-      'Signed in, but your teacher profile could not be saved, so Results may stay empty. ' +
-      'Publish firestore.rules in the Firebase Console, then reload.', 'info', 9000
-    );
-  }
+  // ★★ 這裡以前有一段「阻塞式」的白名單檢查（getDoc + setDoc 後才顯示畫面）。
+  //   新 Google 帳號第一次進後台時 teachers/{uid} 不存在 → 要先寫一次；
+  //   那一步只要慢一點（或 rules 剛好被拒），整個後台就一直卡在轉圈。
+  //   現在改成「先把老師放進後台」，白名單交給畫面顯示後的 ensureWhitelist()
+  //   在背景補 —— 它本來就有、而且失敗也只會跳提示，不擋人。
+
 
   // 顯示老師名稱
   const nm = user.displayName || user.email?.split('@')[0] || 'Teacher';
@@ -1387,7 +1690,7 @@ const msg = document.getElementById('msg');
   gate.innerHTML = `<div class="gate-err">
     <p><b>Could not reach the authentication service.</b></p>
     <p>${String(e.message || e)}</p>
-    <p><a href="admin-login.html">Back to sign in</a></p>
+    <p><a href="admin-login.html${SHARE_PIN ? `?share=${encodeURIComponent(SHARE_PIN)}` : ''}">Back to sign in</a></p>
   </div>`;
 });
 
@@ -2035,6 +2338,44 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
 
+/**
+ * ★ 2026-11-20：把單詞渲染成「題目扣完空的樣子」（gla_ _es）。
+ *
+ * 為什麼：老師要看的是「學生卡在哪一格」，不是「他拼錯過 glasses 這個詞」。
+ *   顯示完整單詞時，老師還得自己在腦中把那兩格挖掉、數位置；
+ *   直接把題庫的挖空形式顯示出來，一眼就知道是第 4、5 個字母。
+ *
+ * 來源就是出題時用的 analyseItem().levels[0].display（例如 "g l a _ _ e s"），
+ *   所以永遠跟學生實際看到的題目一致，不會因為日後改演算法而對不上。
+ *
+ * 規則：字母相連，連續的空用 "_ _" 表示（和老師口語的 gla_ _es 一致）；
+ *   詞組（"octopus card"）保留詞之間的間隔。
+ */
+function blankDisplay(word) {
+  const raw = String(word ?? '');
+  let lv = '';
+  try {
+    lv = analyseItem(raw)?.levels?.[0]?.display || '';
+  } catch { /* 詞庫沒這個詞就退回原字 */ }
+  if (!lv) return esc(raw);
+
+  // 詞與詞之間是兩個空格（"o c t o p u s  c _ _ d"）
+  return lv.split(/\s{2,}/).map(part => {
+    let out = '';
+    let prevBlank = false;
+    for (const t of part.trim().split(/\s+/).filter(Boolean)) {
+      if (t === '_') {
+        out += prevBlank ? ' _' : '_';
+        prevBlank = true;
+      } else {
+        out += t;
+        prevBlank = false;
+      }
+    }
+    return out;
+  }).join(' ');
+}
+
 /** 把每個 assignment 的卡片放進 Results 頁 */
 function renderPerAssignmentBox(exposures, sessions) {
   const box = document.getElementById('perAsgBox');
@@ -2106,8 +2447,8 @@ function renderPerAssignment(exposures, sessions) {
         <td>${s.probes}</td>
         <td>${pct(s.accuracy)}</td>
         <td>${fmtFinished(s)}</td>
-        <td>${s.hardWords.length
-          ? s.hardWords.map(w => `${esc(w.word)} ×${w.n}`).join(', ') : '—'}</td>
+        <td class="td-struggle">${s.hardWords.length
+          ? s.hardWords.map(w => `<span class="cloze-word" title="${esc(w.word)} — ${w.n} mistake${w.n === 1 ? '' : 's'}">${blankDisplay(w.word)}<span class="cw-n">×${w.n}</span></span>`).join(' ') : '—'}</td>
       </tr>`).join('');
 
     // ★ 預設全部收合：老師自行點開要看哪一班。
@@ -2129,7 +2470,9 @@ function renderPerAssignment(exposures, sessions) {
         </div>
         <div class="per-asg-body">
           <p class="per-asg-note">Words are sorted hardest first. “Worst positions” is
-            which letter slot students got wrong most often in that word.</p>
+            which letter slot students got wrong most often in that word.
+            Struggled words are shown <b>as the pupils saw them</b> — a <code>_</code>
+            is a letter they had to type, so you can see exactly which slot went wrong.</p>
 
           <div class="sub-h">Words — hardest first</div>
           <div class="tbl-wrap"><table>
@@ -2672,13 +3015,16 @@ function wireLatinOnly(el, hint) {
 wireLatinOnly(asgCustom, 'Chinese characters are not allowed here — English words only.');
 wireLatinOnly(document.getElementById('customPhrases'), 'Chinese characters are not allowed here — English phrases only.');
 
-/** 挑一個沒被用過的 PIN */
-async function pickFreePin() {
-  const used = await listAssignments();
-  const taken = new Set(used.map(a => a.pin));
+/** 挑一個沒被用過的 PIN（fromCache: 用剛才列表的全表快取，省一次 9000 reads） */
+async function pickFreePin(opts = {}) {
+  const used = opts.fromCache && Array.isArray(window.__pcsAllAssignments)
+    ? window.__pcsAllAssignments
+    : await listAssignments();
+  // ★ 一律 String()：舊資料的 pin 可能是 number，混用會誤判「沒撞車」
+  const taken = new Set(used.map(a => String(a.pin)));
   for (let i = 0; i < 40; i++) {
     const p = makePin();
-    if (!taken.has(p)) return p;
+    if (!taken.has(String(p))) return p;
   }
   return makePin();
 }
@@ -2791,7 +3137,6 @@ document.getElementById('asgCreate').addEventListener('click', async () => {
   const btn = document.getElementById('asgCreate');
   const title = document.getElementById('asgTitle').value.trim();
   const pinInput = document.getElementById('asgPin').value.trim();
-  const className = document.getElementById('asgClass').value.trim();
 
   if (!title) { showMsg('Give the assignment a name first.', 'error'); document.getElementById('asgTitle').focus(); return; }
   if (pinInput && !isValidPinFormat(pinInput)) { showMsg('PIN must be exactly 4 digits.', 'error'); return; }
@@ -2828,8 +3173,10 @@ document.getElementById('asgCreate').addEventListener('click', async () => {
     const pin = pinInput || await pickFreePin();
     const doc = buildAssignment({
       title, phase: 'practice', pin,
-      // ★ 班別（Bug 2）：供後台 Results 篩選；排名本身改按 PIN 分組
-      className,
+      // ★ 2026-10-21：Class 欄位已從表單移除 → 一律空字串。
+      //   排名本來就按 assignmentId（PIN）分組，不受影響；
+      //   Results 的「按班別篩選」對新作業會顯示 —。
+      className: '',
       teacherId: window.__pcsTeacher?.uid ?? null,
       teacherName: window.__pcsTeacher?.name ?? null,
       words: filled.words,
@@ -2860,8 +3207,7 @@ document.getElementById('asgCreate').addEventListener('click', async () => {
 
     asgCustom.value = '';
     updateLineCount();
-    // ★ 班別保留不清空 —— 老師通常連續建同一班的幾份作業，
-    //   每次重打很煩。PIN 欄也一樣（原本就沒清）。
+    // PIN 欄刻意不清空 —— 老師通常連續建同一班的多份作業，每次重打很煩。
   } catch (e) {
     console.error(e);
     const denied = /permission|insufficient/i.test(e.message || '');
@@ -2914,7 +3260,11 @@ function friendlyish(e) {
   return e?.message || 'unknown error';
 }
 
+/** 記住目前派發卡上的是哪一份作業（PIN 按鈕 / Open 都要用） */
+let currentDispatch = null;
+
 function showDispatch(a) {
+  currentDispatch = a;
   asgResultCard.hidden = false;
   asgResultCard.style.display = '';
   const url = joinUrl(a.pin);
@@ -2923,7 +3273,20 @@ function showDispatch(a) {
   document.getElementById('dpWords').textContent = a.items.map(i => i.word).join(' · ');
   document.getElementById('dpUrl').value = url;
   document.getElementById('dpSite').textContent = location.origin + '/';
+  const pinBtn = document.getElementById('dpPinBtn');
+  if (pinBtn) pinBtn.setAttribute('aria-label', `Show PIN ${a.pin} on the projector`);
   asgResultCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/* ══ 滾動鎖（多個彈窗疊加時用計數器，避免關掉一個就解鎖另一個） ══ */
+let scrollLocks = 0;
+function lockScroll() {
+  scrollLocks++;
+  document.body.style.overflow = 'hidden';
+}
+function unlockScroll() {
+  scrollLocks = Math.max(0, scrollLocks - 1);
+  if (!scrollLocks) document.body.style.overflow = '';
 }
 
 /* ══ 大 PIN 投影彈窗 ══ */
@@ -2939,12 +3302,13 @@ function openPinModal(pin, title) {
   pinBigEl.Sub.textContent = title
     ? `Students type this on the join screen for “${title}”.`
     : 'Students type this on the join screen.';
+  if (pinBigEl.Backdrop.hidden) lockScroll();
   pinBigEl.Backdrop.hidden = false;
-  document.body.style.overflow = 'hidden';
 }
 function closePinModal() {
+  if (pinBigEl.Backdrop.hidden) return;
   pinBigEl.Backdrop.hidden = true;
-  document.body.style.overflow = '';
+  unlockScroll();
 }
 // 點背景關閉 / 按鈕關閉
 pinBigEl.Backdrop.addEventListener('mousedown', (e) => {
@@ -2952,9 +3316,12 @@ pinBigEl.Backdrop.addEventListener('mousedown', (e) => {
 });
 document.getElementById('pinBigClose').addEventListener('click', closePinModal);
 document.getElementById('pinBigDone').addEventListener('click', closePinModal);
-// Esc 關閉
+// Esc 關閉（分享 / 導入彈窗會先處理，見下方 capture 監聽）
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !pinBigEl.Backdrop.hidden) closePinModal();
+  if (e.key !== 'Escape') return;
+  // 分享 / 匯入彈窗層級更高，先讓它們處理（見 closeTopDialog）
+  if (closeTopDialog()) return;
+  if (!pinBigEl.Backdrop.hidden) closePinModal();
 }, true);
 
 document.getElementById('dpCopy').addEventListener('click', async () => {
@@ -2966,6 +3333,28 @@ document.getElementById('dpCopy').addEventListener('click', async () => {
     el.select();
     showMsg('Press Ctrl/Cmd + C to copy the selected link.');
   }
+});
+
+// ★ 2026-10-21：PIN 塊本身就是按鈕 —— 點一下直接彈出超大 PIN（投影用）
+document.getElementById('dpPinBtn').addEventListener('click', () => {
+  const pin = document.getElementById('dpPin').textContent.trim();
+  if (!pin || pin === '0000') return;
+  const title = currentDispatch?.title || document.getElementById('dpTitle').textContent.trim();
+  openPinModal(pin, title);
+});
+
+// ★ 2026-10-21：在新分頁打開學生入口。
+//   用 <a rel="noopener noreferrer"> 而不是 window.open —— noopener 一定生效。
+document.getElementById('dpOpen').addEventListener('click', () => {
+  const url = document.getElementById('dpUrl').value.trim();
+  if (!url) return;
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 });
 
 /**
@@ -3054,8 +3443,19 @@ async function listAssignments() {
  *  ★ 舊課程（建立時 teacherId 還是 null）另外放進「未連結」區，
  *   可以一鍵認領，避免辛苦建的課程消失。
  */
-async function loadAssignmentList() {
-  const all = await listAssignments();
+async function loadAssignmentList(opts = {}) {
+  let all = await listAssignments();
+
+  // ★ 2026-10-21：樂觀插入。
+  //   剛複製完別人的作業時，Firestore 的 getDocs 偶爾還沒把新文檔帶回來
+  //   （本地快取 / 索引尚未同步）→ 列表要手動刷新才看得到。
+  //   這裡直接把我剛寫入的那一份先塞進資料裡，畫面立刻有；
+  //   後續任何一次載入都會用伺服器的真實資料覆蓋。
+  const extra = opts.extra;
+  if (extra && extra.pin != null && !all.some(a => String(a.pin) === String(extra.pin))) {
+    all = [extra, ...all];
+  }
+
   const myUid = window.__pcsTeacher?.uid ?? null;
 
   // ★★★ 這是「換 Google 帳號還是看到別人的課程」的根因修正。
@@ -3123,6 +3523,452 @@ async function loadAssignmentList() {
     legacyBox.style.display = 'none';
     document.getElementById('legacyList').innerHTML = '';
   }
+
+  // ★ 2026-10-21：分享 / 匯入要用的兩個索引
+  //   __pcsAllAssignments —— 全表快取（匯入時不必再多讀一次；pickFreePin 也用它粗篩）
+  //   __pcsCopiedFrom     —— 我複製過的來源 PIN → 我那份作業（用來判斷「已添加過」）
+  window.__pcsAllAssignments = all;
+  window.__pcsMineAssignments = mine;
+  window.__pcsCopiedFrom = new Map();
+  window.__pcsMineByPin = new Map();
+  for (const a of mine) {
+    if (a.pin) window.__pcsMineByPin.set(String(a.pin), a);
+    const srcPin = a.copiedFrom?.pin;
+    if (srcPin != null && !window.__pcsCopiedFrom.has(String(srcPin))) {
+      window.__pcsCopiedFrom.set(String(srcPin), a);
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ★ 2026-10-21：分享作業給另一位老師
+   ─────────────────────────────────────────────────────────────
+   語意是「複製一份獨立的作業」，不是共用同一份：
+     · 對方拿到全新 PIN（學生用新 PIN 加入）
+     · teacherId 是對方 → 完全等同他自己的作業（可改 / 可刪 / 可關）
+     · exposures / sessions / rankBoard 都以 assignmentId 區分 → 成績天然隔離
+   連結只帶 PIN（不加 token）：assignments 本來就 allow read: true，
+   學生端就是靠 PIN 讀課程，所以分享連結不泄露額外資訊。
+   ══════════════════════════════════════════════════════════════ */
+
+/** 給老師的分享連結（不是學生用的 joinUrl）—— 實作在 assets/js/share.js */
+function shareUrlFor(pin) {
+  return shareUrl(location.href, pin);
+}
+
+/* ── 通用對話框開關（滾動鎖用計數器，可疊加） ── */
+const shareBackdrop = document.getElementById('shareBackdrop');
+const importBackdrop = document.getElementById('importBackdrop');
+
+function openDialogEl(el) {
+  if (el.hidden) lockScroll();
+  el.hidden = false;
+}
+function closeDialogEl(el) {
+  if (el.hidden) return;
+  el.hidden = true;
+  unlockScroll();
+}
+
+/* ══ 分享彈窗 ══ */
+function openShareDialog(pin) {
+  document.getElementById('shareUrl').value = shareUrlFor(pin);
+  const btn = document.getElementById('shareCopy');
+  btn.textContent = 'Copy';
+  btn.disabled = false;
+  openDialogEl(shareBackdrop);
+  setTimeout(() => document.getElementById('shareUrl').select(), 40);
+}
+function closeShareDialog() { closeDialogEl(shareBackdrop); }
+
+document.getElementById('shareClose').addEventListener('click', closeShareDialog);
+document.getElementById('shareDone').addEventListener('click', closeShareDialog);
+shareBackdrop.addEventListener('mousedown', (e) => {
+  if (e.target === shareBackdrop) closeShareDialog();
+});
+
+document.getElementById('shareCopy').addEventListener('click', async () => {
+  const el = document.getElementById('shareUrl');
+  const btn = document.getElementById('shareCopy');
+  try {
+    await navigator.clipboard.writeText(el.value);
+  } catch {
+    el.select();
+    try { document.execCommand('copy'); } catch { /* 忽略 */ }
+  }
+  btn.textContent = 'Copied ✓';
+  setTimeout(() => { if (!btn.disabled) btn.textContent = 'Copy'; }, 1800);
+});
+
+/* ══ 匯入確認框（四種狀態共用同一個框） ══ */
+const impEl = {
+  Title:     document.getElementById('impTitle'),
+  Sub:       document.getElementById('impSub'),
+  Kv:        document.getElementById('impKv'),
+  Note:      document.getElementById('impNote'),
+  Msg:       document.getElementById('impMsg'),
+  Secondary: document.getElementById('impSecondary'),
+  Neutral:   document.getElementById('impNeutral'),
+  Primary:   document.getElementById('impPrimary'),
+};
+
+function showImportDialog(state) {
+  impEl.Title.textContent = state.title || '';
+  impEl.Sub.textContent = state.sub || '';
+  impEl.Sub.hidden = !state.sub;
+  impEl.Kv.innerHTML = state.kv || '';
+  impEl.Kv.hidden = !state.kv;
+  impEl.Note.textContent = state.note || '';
+  impEl.Note.hidden = !state.note;
+  impEl.Msg.textContent = state.msg || '';
+
+  const setBtn = (el, cfg) => {
+    if (!cfg) { el.hidden = true; el.onclick = null; return; }
+    el.hidden = false;
+    el.disabled = false;
+    el.textContent = cfg.label;
+    el.onclick = cfg.action;
+  };
+  setBtn(impEl.Secondary, state.secondary);
+  setBtn(impEl.Neutral, state.neutral);
+  setBtn(impEl.Primary, state.primary);
+
+  openDialogEl(importBackdrop);
+  setTimeout(() => {
+    const first = !impEl.Primary.hidden ? impEl.Primary
+      : (!impEl.Neutral.hidden ? impEl.Neutral : null);
+    try { first?.focus(); } catch { /* 忽略 */ }
+  }, 40);
+}
+
+function closeImportDialog() {
+  closeDialogEl(importBackdrop);
+  cleanShareParam();
+}
+
+document.getElementById('impX').addEventListener('click', closeImportDialog);
+importBackdrop.addEventListener('mousedown', (e) => {
+  if (e.target === importBackdrop) closeImportDialog();
+});
+
+/** Esc 由最上層的彈窗先處理（匯入 > 分享 > 大 PIN） */
+function closeTopDialog() {
+  if (!importBackdrop.hidden) { closeImportDialog(); return true; }
+  if (!shareBackdrop.hidden) { closeShareDialog(); return true; }
+  return false;
+}
+
+/** 清掉網址上的 ?share= / ?_r= + localStorage 的待處理記錄 —— 所有終態都要做，否則每次刷新都重彈 */
+function cleanShareParam() {
+  clearPendingShare();
+  const u = new URL(location.href);
+  if (!u.searchParams.has('share') && !u.searchParams.has('_r')) return;
+  u.searchParams.delete('share');
+  u.searchParams.delete('_r');
+  history.replaceState(null, '', u.pathname + u.search + u.hash);
+}
+
+/** 取一份作業：先用列表快取（0 次讀），沒有才單讀一次 */
+async function fetchAssignment(pin) {
+  const cached = (window.__pcsAllAssignments || [])
+    .find(a => String(a.pin) === String(pin));
+  if (cached) return cached;
+
+  const { db } = await initFirebase({ signIn: false });
+  const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+  const snap = await fs.getDoc(
+    fs.doc(db, PCS_CONFIG.collections.assignments, assignmentDocId(pin))
+  );
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+/** 打開分享連結後的分派：找不到 / 本來就是你的 / 已添加過 / 全新 */
+async function handleSharePin(pin) {
+  const me = window.__pcsTeacher;
+  let src = null;
+  try {
+    src = await fetchAssignment(pin);
+  } catch (e) {
+    console.warn('[PCS] 讀取分享的作業失敗', e?.message);
+  }
+
+  // ① 找不到
+  if (!src) {
+    showImportDialog({
+      title: 'This link no longer works',
+      sub: `The assignment with PIN ${pin} could not be found. It may have been deleted. `
+         + 'Ask the teacher who shared it for a new link.',
+      neutral: { label: 'OK', action: closeImportDialog },
+    });
+    return;
+  }
+
+  const items = Array.isArray(src.items) ? src.items : [];
+
+  // ① b 空作業
+  if (!items.length) {
+    showImportDialog({
+      title: 'Nothing to copy',
+      sub: `“${src.title || 'This assignment'}” has no words yet, so there is nothing to copy.`,
+      neutral: { label: 'OK', action: closeImportDialog },
+    });
+    return;
+  }
+
+  // ② 本來就是我自己建的（先判這個 —— 否則我自己的複製品會被說成「已添加過」）
+  const verdict = classifyImport(src, me?.uid, window.__pcsMineAssignments || []);
+  if (verdict.kind === 'mine') {
+    showImportDialog({
+      title: 'This is already yours',
+      sub: `“${src.title}” (PIN ${src.pin}) is already in Your assignments. There is nothing to copy.`,
+      secondary: {
+        label: 'Show PIN',
+        action: () => { closeImportDialog(); openPinModal(String(src.pin), src.title); },
+      },
+      neutral: { label: 'OK', action: closeImportDialog },
+    });
+    return;
+  }
+
+  // ③ 我之前已經複製過這一源作業
+  if (verdict.kind === 'copied') {
+    const existing = verdict.copy;
+    showImportDialog({
+      title: 'You have already added this',
+      sub: `You added “${src.title}” earlier as PIN ${existing.pin}.`,
+      note: 'Your copy keeps its own results — they are not shared with the original.',
+      primary: {
+        label: 'Open my copy',
+        action: () => {
+          closeImportDialog();
+          showDispatch(existing);
+          openPinModal(String(existing.pin), existing.title);
+        },
+      },
+      neutral: { label: 'Close', action: closeImportDialog },
+    });
+    return;
+  }
+
+  // ④ 全新 → 確認
+  const kv = `
+    <dt>Title</dt><dd>${escapeHtml(src.title || '—')}</dd>
+    <dt>Words</dt><dd>${items.length} word${items.length === 1 ? '' : 's'}</dd>
+    <dt>From</dt><dd>${escapeHtml(src.teacherName || 'an earlier account')}</dd>
+    ${src.advanced ? '<dt>Mode</dt><dd>Spell the whole word</dd>' : ''}
+    ${src.active === false ? '<dt>Status</dt><dd>Closed — your copy will be open</dd>' : ''}
+  `;
+  showImportDialog({
+    title: 'Add this assignment to your account?',
+    sub: 'A new, independent copy will be created for you.',
+    kv,
+    note: 'You will get a brand-new PIN. Student results are kept completely separate from the original.',
+    neutral: { label: 'No, thanks', action: closeImportDialog },
+    primary: { label: 'Yes, add it', action: () => runImport(src) },
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ★ 2026-10-21：分享流程的「自己啟動 + 自我修復」
+   ─────────────────────────────────────────────────────────────
+   原本只有一條路徑：認證閘門通過 → 呼叫 window.__pcsOnReady() → 裡面才處理
+   ?share=。Safari 上實測「網址參數明明還在、後台也進去了，就是沒有彈窗」，
+   代表那條單一路徑上的某一個環節斷了（模組沒跑到賦值那一行 / 閘門沒呼叫 /
+   讀取一直沒回來）。任何一個斷掉，症狀都一樣：什麼都沒發生、也沒有錯誤訊息。
+
+   所以改成三層：
+     ① classic script 先把 PIN 記到 window（不依賴模組）
+     ② 這裡用輪詢等老師就緒，自己啟動 —— 不等別人來叫
+     ③ 逾時 / 沒彈出任何框 → 給一個「看得見」的失敗框，並可重試
+   ══════════════════════════════════════════════════════════════ */
+
+const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+/** 等老師資料就緒後再跑（最多等 30 秒；未登入時會跳去登入頁，這個 timer 隨頁面結束） */
+function scheduleShareBoot() {
+  if (!__sharePin || __shareBootDone) return;
+  let tries = 0;
+  const tick = () => {
+    if (__shareBootDone || !__sharePin) return;
+    if (window.__pcsTeacher?.uid) { runShareBoot(); return; }
+    if (++tries > 60) return;
+    setTimeout(tick, 500);
+  };
+  setTimeout(tick, 0);
+}
+
+async function runShareBoot() {
+  if (!__sharePin || __shareBootDone) return;
+  __shareBootDone = true;
+
+  // ★ 判斷「這份作業本來就是我的 / 我之前複製過」需要清單。
+  //   清單還沒載就等它一下，但絕不無限期等 —— 8 秒後照樣往下走，
+  //   最壞情況是多重問一次，總比什麼都不問好。
+  try {
+    if (!window.__pcsAllAssignments) {
+      await Promise.race([loadAssignmentList(), delay(8000)]);
+    }
+  } catch (e) {
+    console.warn('[PCS] share boot: assignment list failed', e?.message);
+  }
+
+  try {
+    // ★ 12 秒還回不來 → 視為失敗，至少讓老師看到發生什麼事
+    await Promise.race([
+      handleSharePin(__sharePin),
+      delay(12000).then(() => { throw new Error('TIMEOUT'); }),
+    ]);
+  } catch (e) {
+    console.error('[PCS] handleSharePin failed', e);
+    showShareFailure(e);
+    return;
+  }
+
+  // ★ 沒有拋錯、但兩個彈窗都沒開 → Safari 上「靜默失敗」的典型症狀
+  if (importBackdrop.hidden && shareBackdrop.hidden) {
+    console.warn('[PCS] share PIN', __sharePin, 'was handled but no dialog is showing');
+    setTimeout(() => {
+      if (importBackdrop.hidden && shareBackdrop.hidden) showShareFailure(new Error('NO_DIALOG'));
+    }, 700);
+  }
+}
+
+/** 分享流程真的失敗時，給一個看得見、可重試的框（而不是「什麼都沒發生」） */
+function showShareFailure(e) {
+  const reason = String(e?.message || e || 'unknown error');
+  try {
+    showImportDialog({
+      title: 'Could not open the shared assignment',
+      sub: `The link arrived (PIN ${__sharePin}), but the prompt could not be shown.`,
+      msg: reason === 'NO_DIALOG' ? '' : reason,
+      secondary: {
+        label: 'Try again',
+        action: () => { closeImportDialog(); __shareBootDone = false; runShareBoot(); },
+      },
+      neutral: { label: 'Close', action: closeImportDialog },
+    });
+  } catch (err) {
+    // 連框都開不了 → 退回 classic script 那條紅字橫幅，至少不是靜悄悄
+    window.__pcsFatal?.('share dialog: ' + (err?.message || err));
+  }
+}
+
+/* ★ Safari 的 bfcache：用 popup 登入再回來時可能整頁從快取復原，
+   module 不會重跑一次，閘門也不會再呼叫 onReady → 分享彈窗就永遠不出現。
+   這裡在「從快取復原」時重新讀一次網址，需要就再跑一次。 */
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted) return;
+  let pin = '';
+  try { pin = sharePinFrom(location.search) || String(window.__PCS_SHARE_PIN || '') || readPendingShare(); } catch { /* 略 */ }
+  if (!pin) return;
+  if (!importBackdrop?.hidden || !shareBackdrop?.hidden) return;   // 已經有框開著
+  __sharePin = pin;
+  __shareBootDone = false;
+  scheduleShareBoot();
+});
+
+/** 按下「Yes, add it」之後的流程 */
+async function runImport(src) {
+  const btn = impEl.Primary;
+  const neutral = impEl.Neutral;
+  const label = btn.textContent;
+  btn.disabled = true;
+  neutral.disabled = true;
+  btn.textContent = 'Adding…';
+  impEl.Msg.textContent = '';
+
+  try {
+    const created = await copyAssignment(src);
+
+    // ★ 先把清單畫好、再關彈窗。
+    //   順序反過來的話，一旦 loadAssignmentList 出錯，錯誤訊息會被寫進
+    //   已經藏起來的彈窗 → 老師只看到「沒反應」，什麼提示都沒有。
+    await loadAssignmentList({ extra: created });
+    closeImportDialog();                 // 含清掉 ?share=
+    showDispatch(created);               // 直接把「Send this to your class」換成新 PIN
+    showMsg(`Added. Your copy has PIN ${created.pin}.`, 'success', 7000);
+  } catch (e) {
+    console.error('[PCS] 複製作業失敗', e);
+    impEl.Msg.textContent = friendlyCopyError(e);
+    btn.disabled = false;
+    neutral.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+/** 把作業複製一份到當前老師帳號（回傳新建的物件） */
+async function copyAssignment(src) {
+  const me = window.__pcsTeacher;
+  if (!me?.uid) throw new Error('NOT_SIGNED_IN');
+
+  // ★ 逐欄位挑選的邏輯在 assets/js/share.js（純函式，可在 node 裡單測）
+  const payload = buildCopyPayload(src, me);
+
+  // Firestore 單文檔上限 1 MB。圖片是 base64，30 個詞有機會超。
+  const bytes = payloadBytes(payload);
+  if (bytes > MAX_COPY_BYTES) {
+    const err = new Error('TOO_BIG');
+    err.bytes = bytes;
+    throw err;
+  }
+
+  const { db } = await initFirebase({ signIn: false });
+  const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+
+  // ★ 事務內判存在 —— 兩個老師同時點同一條連結時不會互相覆蓋
+  //   （assignmentDocId 只有 9000 個，覆蓋 = 學生的課瞬間換內容）
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const newPin = await pickFreePin({ fromCache: true });
+    if (String(newPin) === String(src.pin)) continue;
+
+    const ref = fs.doc(db, PCS_CONFIG.collections.assignments, assignmentDocId(newPin));
+    try {
+      await fs.runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (snap.exists()) throw new Error('PIN_TAKEN');
+        tx.set(ref, { ...payload, pin: newPin, createdAt: fs.serverTimestamp() });
+      });
+      return {
+        ...payload,
+        pin: newPin,
+        id: assignmentDocId(newPin),
+        // ★ 只為「樂觀顯示」用：列表按 createdAt 由新到舊排，
+        //   少這個欄位新作業會排到最底，看起來像沒加進來。
+        //   下次從伺服器載入時會被真正的 serverTimestamp 取代。
+        createdAt: { seconds: Math.floor(Date.now() / 1000) },
+      };
+    } catch (e) {
+      const m = e?.message || '';
+      if (/PIN_TAKEN|aborted/i.test(m)) continue;      // 撞號 → 換一個
+      if (/permission|insufficient/i.test(m)) {
+        const fixed = await ensureWhitelist({ force: true });
+        if (!fixed) throw e;
+        continue;                                       // 補白名單後再試
+      }
+      throw e;
+    }
+  }
+  throw new Error('NO_FREE_PIN');
+}
+
+/** 複製失敗時的人話 */
+function friendlyCopyError(e) {
+  const m = e?.message || '';
+  if (m === 'NOT_SIGNED_IN') return 'Your session expired. Reload the page and sign in again.';
+  if (m === 'TOO_BIG') {
+    const mb = ((e.bytes || 0) / 1048576).toFixed(1);
+    return `This assignment is too large to copy (about ${mb} MB; the limit is 1 MB). `
+         + 'Most of it is pictures. Ask the author to use fewer or smaller pictures, then share again.';
+  }
+  if (m === 'NO_FREE_PIN') return 'No free PIN left in this range. Please try again.';
+  if (/permission|insufficient/i.test(m)) {
+    return 'Firestore rules blocked this. Firebase Console → Firestore Database → Rules → '
+         + 'paste the latest firestore.rules → Publish, then try again.';
+  }
+  if (/network|offline|unavailable|timeout/i.test(m)) {
+    return 'Network problem. Check your connection and try again.';
+  }
+  return 'Could not add this assignment: ' + (m || 'unknown error');
 }
 
 /**
@@ -3186,7 +4032,7 @@ function renderAsgList(list, legacy = false) {
         ${legacy ? `<button class="btn-s" data-act="claim">Claim</button>` : ''}
         <button class="btn-s" data-act="words" data-count="${items.length}">Edit (${items.length})</button>
         <button class="btn-s" data-act="show">Show PIN</button>
-        <button class="btn-s" data-act="copy">Copy link</button>
+        <button class="btn-s" data-act="share" title="Get a link another teacher can open">Share</button>
         <button class="btn-s ${a.active === false ? '' : 'danger'}" data-act="toggle">
           ${a.active === false ? 'Reopen' : 'Close'}
         </button>
@@ -3355,18 +4201,209 @@ async function applyImageToRow(row, file) {
 // ══════════════════════════════════════════════
 const imgm = {
   row: null, ix: -1, isNew: false,
-  dataUrl: null,        // 壓縮後（準備寫入）的圖
+  dataUrl: null,        // 要寫入的圖（＝取景框裁出來的結果）
+  viewUrl: null,        // 彈窗裡顯示的原圖（拖動/縮放用，不裁）
   savedUrl: null,       // 開啟時已有的圖（用來判斷有沒有改動）
   busy: false,
+  cropDirty: true,      // 換了圖 → 取景框要重新置中
 };
 
 const imgmEl = {};
 function cacheImgmEls() {
-  ['Backdrop','Card','Drop','Empty','Fig','Img','Meta','Busy','Remove','Cancel','Save','File','Word']
+  ['Backdrop','Card','Drop','Empty','Fig','Img','Meta','Busy','Remove','Cancel','Save','File','Word',
+   'Stage','Zoom','Reset','Change','ZoomRow']
     .forEach(k => { imgmEl[k] = document.getElementById('imgm' + k); });
 }
 
 function imgmIsOpen() { return !!imgm.row; }
+
+/* ══════════════════════════════════════════════════════════════
+   ★ 2026-11-20：方形取景框
+   ─────────────────────────────────────────────────────────────
+   老師的原話：「加一個 4 角的那種裁剪，或者可以移動上傳上來的圖片
+   讓方形框框住主體」。這裡選了後者，理由：
+     · 一個手勢（拖）就做完，不用先找把手再拉角
+     · 滑鼠、觸控板、iPad 手指完全一致；加分：雙指縮放
+     · 框固定 1:1 —— 學生端的圖片欄就是正方形，裁別的形狀一定變形
+   座標系：圖片用 width/height + translate 平移縮放（不破壞像素），
+   匯出時再從 transform 反推原圖上的矩形，畫到 canvas。
+   ══════════════════════════════════════════════════════════════ */
+const crop = {
+  z: 1, tx: 0, ty: 0,     // 縮放倍率與位移（px，相對取景框）
+  w0: 0, h0: 0,           // 原圖像素
+  S: 0,                   // 取景框邊長
+  base: 1,                // 「短邊剛好填滿方框」的比例
+  ptrs: new Map(),        // 目前按下的指標（支援雙指）
+  startDist: 0, startZ: 1,
+};
+
+/** 量尺寸；換了圖就重新置中 */
+function cropMeasure() {
+  const st = imgmEl.Stage, img = imgmEl.Img;
+  if (!st || !img) return false;
+  const S = st.clientWidth;
+  const w0 = img.naturalWidth || 0;
+  const h0 = img.naturalHeight || 0;
+  if (!S || !w0 || !h0) return false;
+
+  crop.S = S; crop.w0 = w0; crop.h0 = h0;
+  crop.base = S / Math.min(w0, h0);          // cover：不留空白邊
+  if (imgm.cropDirty) {
+    imgm.cropDirty = false;
+    crop.z = 1;
+    cropApply(true);
+    if (imgmEl.Zoom) imgmEl.Zoom.value = '100';
+  } else {
+    cropApply();
+  }
+  return true;
+}
+
+/** 套用 transform（並夾住邊界，圖永遠蓋滿方框） */
+function cropApply(center = false) {
+  const img = imgmEl.Img;
+  if (!img || !crop.S) return;
+  const dw = crop.w0 * crop.base * crop.z;
+  const dh = crop.h0 * crop.base * crop.z;
+  if (center) { crop.tx = (crop.S - dw) / 2; crop.ty = (crop.S - dh) / 2; }
+  crop.tx = Math.min(0, Math.max(crop.S - dw, crop.tx));
+  crop.ty = Math.min(0, Math.max(crop.S - dh, crop.ty));
+  img.style.width = dw + 'px';
+  img.style.height = dh + 'px';
+  img.style.transform = `translate(${crop.tx}px, ${crop.ty}px)`;
+}
+
+/** 縮放；預設以方框中心為錨點（雙指時傳入雙指中點） */
+function cropZoomTo(z, anchor = null) {
+  if (!crop.S) return;
+  z = Math.min(3.2, Math.max(1, z));
+  if (Math.abs(z - crop.z) < 0.001) return;
+  const cx = anchor ? anchor.x : crop.S / 2;
+  const cy = anchor ? anchor.y : crop.S / 2;
+  const relX = (cx - crop.tx) / crop.z;      // 圖上被指著的那一點
+  const relY = (cy - crop.ty) / crop.z;
+  crop.z = z;
+  crop.tx = cx - relX * z;
+  crop.ty = cy - relY * z;
+  cropApply();
+  if (imgmEl.Zoom) imgmEl.Zoom.value = String(Math.round(z * 100));
+}
+
+/** 從 transform 反推原圖矩形 → 畫到 canvas → dataURL */
+function cropExport() {
+  if (!crop.S || !crop.w0) return null;
+  const scale = crop.base * crop.z;          // 原圖 px → 畫面 px
+  const srcS = crop.S / scale;
+  const srcX = -crop.tx / scale;
+  const srcY = -crop.ty / scale;
+
+  // 輸出尺寸跟著作業系統：裁得小就不要硬放大（放大只是變大檔案、不會變清楚）
+  // 上限 400：一個作業 30 個詞，400px 方圖約 30–45KB，加起來仍在 Firestore 1MB 以內
+  const out = Math.max(120, Math.min(400, Math.round(srcS)));
+  const cv = document.createElement('canvas');
+  cv.width = out; cv.height = out;
+  const g = cv.getContext('2d');
+  g.imageSmoothingQuality = 'high';
+  try {
+    g.drawImage(imgmEl.Img, srcX, srcY, srcS, srcS, 0, 0, out, out);
+    return { url: cv.toDataURL('image/jpeg', 0.85), size: out };
+  } catch (e) {
+    console.warn('[PCS] crop failed', e);
+    return null;
+  }
+}
+
+let _cropTimer = 0;
+function scheduleCropCommit(delay = 160) {
+  clearTimeout(_cropTimer);
+  _cropTimer = setTimeout(cropCommit, delay);
+}
+
+/** 把裁好的結果寫回 imgm.dataUrl（Save 按鈕用的就是它） */
+function cropCommit() {
+  const r = cropExport();
+  if (!r) return;
+  imgm.dataUrl = r.url;
+  const kb = b64 => {
+    const b = Math.round(b64.length * 0.75);
+    return b < 1024 ? b + ' B' : (b / 1024).toFixed(b < 10240 ? 1 : 0) + ' KB';
+  };
+  imgm.metaHtml = `${r.size} × ${r.size} · ${kb(r.url.slice(r.url.indexOf(',') + 1))}`
+    + ' <b>· square crop</b>';
+  if (imgmEl.Meta) imgmEl.Meta.innerHTML = imgm.metaHtml;
+  if (imgmEl.Save) imgmEl.Save.disabled = imgm.busy || imgm.dataUrl === imgm.savedUrl;
+}
+
+/** 取景框的三種輸入：拖、雙指縮放、滾輪 */
+function wireCrop() {
+  const st = imgmEl.Stage;
+  if (!st) return;
+
+  st.addEventListener('pointerdown', (e) => {
+    if (!imgm.dataUrl) return;                 // 還沒圖 → 交給外面的檔案選單
+    e.preventDefault();
+    e.stopPropagation();
+    try { st.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
+    crop.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (crop.ptrs.size === 2) {
+      const [a, b] = [...crop.ptrs.values()];
+      crop.startDist = Math.hypot(a.x - b.x, a.y - b.y) || 0;
+      crop.startZ = crop.z;
+    }
+  });
+
+  st.addEventListener('pointermove', (e) => {
+    const p = crop.ptrs.get(e.pointerId);
+    if (!p) return;
+    e.preventDefault();
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+
+    if (crop.ptrs.size >= 2) {
+      const [a, b] = [...crop.ptrs.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (crop.startDist > 0 && d > 0) cropZoomTo(crop.startZ * (d / crop.startDist));
+      return;
+    }
+    crop.tx += dx;
+    crop.ty += dy;
+    cropApply();
+  });
+
+  const end = (e) => {
+    if (!crop.ptrs.has(e.pointerId)) return;
+    crop.ptrs.delete(e.pointerId);
+    if (crop.ptrs.size === 0) {
+      crop.startDist = 0;
+      scheduleCropCommit(120);
+    }
+  };
+  st.addEventListener('pointerup', end);
+  st.addEventListener('pointercancel', end);
+  st.addEventListener('lostpointercapture', end);
+
+  st.addEventListener('wheel', (e) => {
+    if (!imgm.dataUrl) return;
+    e.preventDefault();
+    cropZoomTo(crop.z * (e.deltaY > 0 ? 0.92 : 1.08));
+    scheduleCropCommit(220);
+  }, { passive: false });
+
+  imgmEl.Zoom?.addEventListener('input', () => {
+    cropZoomTo(Number(imgmEl.Zoom.value) / 100);
+    scheduleCropCommit(200);
+  });
+
+  imgmEl.Reset?.addEventListener('click', () => {
+    crop.z = 1;
+    cropApply(true);
+    if (imgmEl.Zoom) imgmEl.Zoom.value = '100';
+    scheduleCropCommit(60);
+  });
+
+  imgmEl.Change?.addEventListener('click', () => imgmEl.File.click());
+}
 
 function openImagePicker(row) {
   if (!imgmEl.Backdrop) cacheImgmEls();
@@ -3378,6 +4415,8 @@ function openImagePicker(row) {
   imgm.isNew = row.classList.contains('aiw-new');
   imgm.savedUrl = slot.querySelector('img')?.getAttribute('src') || null;
   imgm.dataUrl = imgm.savedUrl;
+  imgm.viewUrl = imgm.savedUrl;          // 顯示原圖；裁切是即時 transform
+  imgm.cropDirty = true;                 // 開一張新圖 → 取景框重新置中
 
   // 詞名：新詞列優先讀輸入框（老師可能正在打字）
   const word = imgm.isNew
@@ -3400,6 +4439,8 @@ function closeImagePicker() {
   imgmEl.Backdrop.hidden = true;
   document.body.style.overflow = '';
   imgm.row = null; imgm.dataUrl = null; imgm.savedUrl = null; imgm.busy = false;
+  imgm.viewUrl = null; imgm.cropDirty = true;
+  crop.ptrs.clear(); crop.startDist = 0;
 }
 
 /** 依目前狀態重畫彈窗內容 */
@@ -3412,7 +4453,11 @@ function paintImagePicker() {
   imgmEl.Drop.classList.remove('is-over');
 
   if (has) {
-    imgmEl.Img.src = imgm.dataUrl;
+    // ★ 顯示的是「原圖」，不是裁完的結果 ——
+    //   否則老師一拖動，圖就被換成裁過的小圖，再也拖不動了。
+    if (imgmEl.Img.getAttribute('src') !== imgm.viewUrl) imgmEl.Img.src = imgm.viewUrl;
+    imgmEl.Img.onload = () => { cropMeasure(); };
+    if (imgmEl.Img.complete && imgmEl.Img.naturalWidth) cropMeasure();
     imgmEl.Meta.innerHTML = imgm.metaHtml || '';
   }
   imgmEl.Save.disabled = imgm.busy || !imgm.dataUrl || imgm.dataUrl === imgm.savedUrl;
@@ -3446,14 +4491,17 @@ async function imgmTakeFile(file) {
   imgmEl.Save.disabled = true;
 
   try {
-    const dataUrl = await fileToDataUrl(file);          // ★ 壓縮在這裡發生
+    // ★ 來源用 800（裁切會丟掉面積，先壓到 400 再裁會糊）
+    const dataUrl = await fileToDataUrl(file, { maxEdge: 800 });
     // 等圖片載入完才能量到壓縮後的實際尺寸
     await new Promise(res => {
       imgmEl.Img.onload = res;
       imgmEl.Img.onerror = res;
       imgmEl.Img.src = dataUrl;
     });
+    imgm.viewUrl = dataUrl;              // 取景框裡顯示的原圖
     imgm.dataUrl = dataUrl;
+    imgm.cropDirty = true;               // 換圖 → 重新置中
     imgm.metaHtml = describeCompression(file.size || 0, dataUrl);
   } catch (e) {
     console.warn('[PCS] image failed', e);
@@ -3463,6 +4511,12 @@ async function imgmTakeFile(file) {
     imgm.busy = false;
     paintImagePicker();
   }
+
+  // ★ 量好取景框 → 立刻把「目前的方框內容」算成結果，
+  //   這樣就算老師完全不動，存下去的也是正方形。
+  requestAnimationFrame(() => {
+    if (cropMeasure()) cropCommit();
+  });
 }
 
 async function imgmSave() {
@@ -3493,11 +4547,21 @@ async function imgmRemove() {
 function wireImagePicker() {
   cacheImgmEls();
   if (!imgmEl.Backdrop) return;
+  wireCrop();
 
   // 點方框 = 開系統檔案選單
-  imgmEl.Drop.addEventListener('click', () => imgmEl.File.click());
+  // ★ 已經有圖時不開 —— 那時候點下去是要「拖動取景」，開檔案選單會很煩。
+  //   要換圖請按右邊的 Change。
+  imgmEl.Drop.addEventListener('click', () => {
+    if (imgm.dataUrl) return;
+    imgmEl.File.click();
+  });
   imgmEl.Drop.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); imgmEl.File.click(); }
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (!imgm.dataUrl) imgmEl.File.click();
+      else imgmEl.Save.click();
+    }
   });
 
   imgmEl.File.addEventListener('change', (e) => {
@@ -3652,6 +4716,13 @@ asgRoot.addEventListener('click', async (e) => {
   const id = row.dataset.id;
   const pin = row.dataset.pin;
   const act = btn.dataset.act;
+
+  // ★ 2026-10-21：分享（給另一位老師）。放在最前面，避免落進下面 initFirebase 的通用路徑。
+  if (act === 'share') {
+    if (!pin) return;
+    openShareDialog(pin);
+    return;
+  }
 
 
 
@@ -3956,6 +5027,9 @@ asgRoot.addEventListener('click', async (e) => {
     return;
   }
 
+  // ⚠ 2026-10-21：列表卡片上的「Copy link」按钮已移除（按鈕太多、和 Share 重複）；
+  //   學生連結仍然可以在「Send this to your class」卡片（點 Show PIN 出現）裡複製。
+  //   這裡保留分支，只是現在沒有按鈕會觸發它。
   if (act === 'copy') {
     const url = joinUrl(pin);
     try { await navigator.clipboard.writeText(url); showMsg('Link copied.'); }
@@ -4050,7 +5124,24 @@ updateLineCount();
 //   而 teacherId 是認證閘門確認登入後才填的。
 //   如果這裡直接呼叫（module 頂層），__pcsTeacher 還是 undefined → 課程清單全被當成
 //   「別人的」而消失。所以交給閘門在確認後觸發。
-window.__pcsOnReady = () => loadAssignmentList();
+//
+// ★ 分享連結也必須等這裡 —— 閘門通過前 __pcsTeacher 是 undefined、畫面還被
+//   authGate 蓋著，提前彈窗會被遮罩壓住，而且去重判斷拿不到 uid。
+window.__pcsOnReady = async () => {
+  // ★ 2026-10-21：這裡每一步都自己接住錯誤。
+  //   呼叫端是 `try { window.__pcsOnReady?.() } catch` —— 只接得住同步錯誤，
+  //   async 函式一旦 reject，後面的分享彈窗就被默默跳過了（症狀：登入完
+  //   直接進後台、完全沒詢問，而且 console 只有一條 unhandled rejection）。
+  try {
+    await loadAssignmentList();
+  } catch (e) {
+    console.error('[PCS] loadAssignmentList failed', e);
+  }
+
+  // ★ 分享彈窗交給 runShareBoot()：它自己會等就緒、自己重試，
+  //   就算這個回呼沒被呼叫到（Safari 實測過的狀況）也照樣會彈。
+  if (SHARE_PIN) scheduleShareBoot();
+};
 
 </script>
 </div><!-- /appShell -->
@@ -4073,7 +5164,8 @@ window.__pcsOnReady = () => loadAssignmentList();
     </div>
     <p class="imgm-sub">
       Paste <kbd>⌘V</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd>, drag a picture into the box,
-      or click the box to pick a file.
+      or click the box to pick a file. Then drag it so the subject sits inside the
+      orange square — only the square is saved.
     </p>
 
     <div class="imgm-drop" id="imgmDrop" tabindex="0" role="button"
@@ -4085,7 +5177,22 @@ window.__pcsOnReady = () => loadAssignmentList();
       </div>
 
       <figure class="imgm-fig" id="imgmFig" hidden>
-        <img id="imgmImg" alt="">
+        <div class="imgm-stage" id="imgmStage">
+          <img id="imgmImg" alt="" draggable="false">
+          <div class="imgm-frame" aria-hidden="true">
+            <span class="cf tl"></span><span class="cf tr"></span>
+            <span class="cf bl"></span><span class="cf br"></span>
+          </div>
+        </div>
+        <div class="imgm-zoomrow" id="imgmZoomRow">
+          <span class="zl" aria-hidden="true">−</span>
+          <input type="range" id="imgmZoom" min="100" max="320" value="100" step="1"
+                 aria-label="Zoom">
+          <span class="zl" aria-hidden="true">+</span>
+          <button class="imgm-reset" id="imgmReset" type="button" title="Fit the whole picture">Reset</button>
+          <button class="imgm-change" id="imgmChange" type="button" title="Choose another picture">Change</button>
+        </div>
+        <p class="imgm-hint">Drag the picture to frame the subject · pinch or use the slider to zoom</p>
         <figcaption class="imgm-meta" id="imgmMeta"></figcaption>
       </figure>
 
@@ -4126,6 +5233,56 @@ window.__pcsOnReady = () => loadAssignmentList();
     <div class="pinbig-foot">
       <span class="grow"></span>
       <button class="btn-s" id="pinBigDone" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     ★ 2026-10-21：分享作業（給另一位老師）
+     對方打開連結後拿到的是**自己的一份副本**（新 PIN、成績獨立），
+     不是共用同一份 —— 所以文案要說清楚。
+     ════════════════════════════════════════════════ -->
+<div class="dlg-backdrop" id="shareBackdrop" hidden>
+  <div class="dlg-card" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+    <div class="dlg-head">
+      <h3 class="dlg-title" id="shareTitle">Share this assignment</h3>
+      <button class="dlg-x" id="shareClose" type="button" aria-label="Close">×</button>
+    </div>
+    <p class="dlg-sub" id="shareSub">
+      Any teacher with this link can add their own copy. They get a brand-new PIN and
+      separate results — your class is not affected.
+    </p>
+    <div class="dlg-field">
+      <input id="shareUrl" type="text" readonly>
+      <button class="btn-s primary" id="shareCopy" type="button">Copy</button>
+    </div>
+    <div class="dlg-foot">
+      <span class="grow"></span>
+      <button class="btn-s" id="shareDone" type="button">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     ★ 2026-10-21：打開分享連結時的確認框
+     四種狀態共用一個框（找不到 / 本來就是你的 / 已添加過 / 全新），
+     由 showImportDialog(state) 決定標題、說明與按鈕。
+     ════════════════════════════════════════════════ -->
+<div class="dlg-backdrop" id="importBackdrop" hidden>
+  <div class="dlg-card" role="dialog" aria-modal="true" aria-labelledby="impTitle">
+    <div class="dlg-head">
+      <h3 class="dlg-title" id="impTitle">Add this assignment?</h3>
+      <button class="dlg-x" id="impX" type="button" aria-label="Close">×</button>
+    </div>
+    <p class="dlg-sub" id="impSub"></p>
+    <dl class="dlg-kv" id="impKv"></dl>
+    <p class="dlg-note" id="impNote"></p>
+    <p class="dlg-msg" id="impMsg"></p>
+    <div class="dlg-foot">
+      <button class="btn-s" id="impSecondary" type="button" hidden></button>
+      <span class="grow"></span>
+      <button class="btn-s" id="impNeutral" type="button">Close</button>
+      <button class="btn-s primary" id="impPrimary" type="button" hidden></button>
     </div>
   </div>
 </div>

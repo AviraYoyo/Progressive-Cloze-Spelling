@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-10-21-r49';
+  var BUILD = '2026-11-20-r56';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-10-21-r49">
-<link rel="stylesheet" href="assets/css/student.css?v=2026-10-21-r49">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-20-r56">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-11-20-r56">
 </head>
 <body class="play-page">
 
@@ -52,8 +52,8 @@
   </div>
 
   <div class="topbar-right">
-    <span class="score-pill" id="pointsPill" title="Points">⭐ <b id="pointsNum">0</b></span>
-    <span class="sync-badge" id="syncBadge"><span class="dot"></span><span id="syncText">Local</span></span>
+    <span class="score-pill" id="pointsPill" data-i18n-attr="title:game.points">⭐ <b id="pointsNum">0</b></span>
+    <span class="sync-badge" id="syncBadge"><span class="dot"></span><span id="syncText">…</span></span>
   </div>
   <div class="lang-slot" id="langSlot"></div>
 </header>
@@ -124,27 +124,31 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-10-21-r49';
-import { diagnose } from './assets/js/blanking.js?v=2026-10-21-r49';
-import { localWordBank, loadWordList, analyseItem, buildItemInline } from './assets/js/wordbank.js?v=2026-10-21-r49';
-import { emojiForWord } from './assets/js/emoji.js?v=2026-10-21-r49';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-20-r56';
+import { diagnose } from './assets/js/blanking.js?v=2026-11-20-r56';
+import { localWordBank, loadWordList, analyseItem, buildItemInline } from './assets/js/wordbank.js?v=2026-11-20-r56';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-11-20-r56';
 import {
   initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
   progress, summarise, serialise, deserialise,
-} from './assets/js/scheduler.js?v=2026-10-21-r49';
-import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech } from './assets/js/speech.js?v=2026-10-21-r49';
-import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-10-21-r49';
-import { recordExposure } from './assets/js/exposure.js?v=2026-10-21-r49';
-import { enqueue } from './assets/js/outbox.js?v=2026-10-21-r49';
-import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-10-21-r49';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-10-21-r49';
+} from './assets/js/scheduler.js?v=2026-11-20-r56';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech } from './assets/js/speech.js?v=2026-11-20-r56';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-20-r56';
+import { recordExposure } from './assets/js/exposure.js?v=2026-11-20-r56';
+import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-20-r56';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-20-r56';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-20-r56';
 import {
   scoreRound, loadMyScore, addScore, fetchClassRanking, myRank, buildRankSession,
   subscribeClassRanking,
-} from './assets/js/leaderboard.js?v=2026-10-21-r49';
+} from './assets/js/leaderboard.js?v=2026-11-20-r56';
 
 const CFG = PCS_CONFIG.experiment;
 initLang();
+// ★ outbox 不 import i18n（避免 ?v= 造成第二個模組實例），改由這裡注入 t()。
+//   注入後它會立刻重畫一次徽章，所以順序放在 initLang() 之後。
+setBadgeTranslator(t);
+refreshBadge();
 
 const student = JSON.parse(sessionStorage.getItem('pcs.student') || '{}');
 
@@ -257,6 +261,9 @@ let attempts = {}, hadError = false, questionStart = 0, answeredAll = false;
 // Boot
 // ══════════════════════════════════════════════
 mountLangToggle(document.getElementById('langSlot'));
+// ★ 首屏也要套一次：否則 localStorage 已是 zh 的使用者重新整理後，
+//   靜態的 data-i18n / data-i18n-attr（例如分數的 tooltip）仍是英文原字。
+applyI18n(document);
 document.addEventListener('pcs:lang-changed', () => {
   applyI18n(document);
   fillSessionChip();      // ★ 晶片上的「學號」標籤也要跟著語言切換
@@ -303,6 +310,9 @@ async function init() {
   //   少了這道短路，init() 會繼續跑 loadWordList() 把內建詞庫載進來，
   //   在跳轉發生前先把一局遊戲開起來。
   if (NO_SESSION) return;
+
+  // ★ 2026-11-20：一進課程就把排行榜釘在旁邊（比賽時常亮、即時更新）
+  pinRanking();
 
   // ★ 優先用「老師派的課程詞彙」；沒有課程（老師沒建）才退回內建詞庫，
   //   這樣學生端永遠不會開天窗。
@@ -626,7 +636,7 @@ function drawQuestion() {
   if (current.item.wordId !== lastAutoSpokeWordId) {
     lastAutoSpokeWordId = current.item.wordId;
     try {
-      speakWord(current.targetWord, { rate: 0.7, lang: PCS_CONFIG.ui.lang });
+      speakWord(current.targetWord, { lang: PCS_CONFIG.ui.lang });
     } catch { /* autoplay 限制：忽略 */ }
   }
 }
@@ -742,26 +752,46 @@ function wireQuestion() {
   //  ★ 記住是哪一格：學生可能正在輸入中間某一格，不該跳回第一格。
   const speakBtn = STAGE.querySelector('#speakBtn');
   if (speakBtn) {
-    const keepFocus = (e) => e.preventDefault();   // 阻止 blur
-    speakBtn.addEventListener('mousedown', keepFocus);
-    speakBtn.addEventListener('touchstart', keepFocus, { passive: false });
+    /* ★★ 2026-11-20 修 bug：iPad 上點小喇叭完全沒反應。
+       原因：舊版在 touchstart 上 preventDefault()（想保住輸入框焦點），
+       但 iOS Safari 一旦在 touchstart 被 preventDefault，就**不再派發 click**
+       → 語音永遠不會執行。桌機的 mousedown 不會有這問題，所以只有 iPad 壞。
+       現在改成：在 pointerdown（真正的使用者手勢）裡直接發音並 preventDefault
+       （pointerdown 的 preventDefault 不會取消 click，只擋掉 mousedown / 焦點轉移）。
+       click 仍保留給鍵盤操作，用時間戳去重。 */
+    let spokenAt = 0;
 
-    speakBtn.addEventListener('click', () => {
+    const doSpeak = () => {
+      spokenAt = Date.now();
       playTap();
       speakBtn.classList.add('speaking');
-      // ★ sentence 可能是 null（例句挖空失敗時）→ 只唸單詞
-      if (current.sentence) {
-        speakSentenceAndWord(current.sentence, current.targetWord,
+      // ★ sentence 可能是 null（例句在句中挖空失敗、畫面只顯示單詞）——
+      //   但「唸出來」跟「畫面怎麼排」是兩件事：只要詞庫裡有例句就照樣唸，
+      //   唸不到才退回只唸單詞。
+      const sent = current?.sentence || current?.wordObj?.sentences?.[0] || '';
+      if (sent) {
+        speakSentenceAndWord(sent, current.targetWord,
           { rate: PCS_CONFIG.ui.speechRate, lang: PCS_CONFIG.ui.lang });
       } else {
-        speakWord(current.targetWord, { rate: 0.7, lang: PCS_CONFIG.ui.lang });
+        speakWord(current.targetWord, { lang: PCS_CONFIG.ui.lang });
       }
-      setTimeout(() => speakBtn.classList.remove('speaking'), 2200);
+      setTimeout(() => speakBtn.classList.remove('speaking'), 2400);
 
       // ★ 唸完（或立刻）把焦點放回學生原本在的那一格，鍵盤不會消失。
       const back = lastFocusedInput || inputs[0];
       back?.focus({ preventScroll: true });
       try { back?.setSelectionRange?.(back.value.length, back.value.length); } catch {}
+    };
+
+    speakBtn.addEventListener('pointerdown', (e) => {
+      if (e.button != null && e.button > 0) return;      // 只認主鍵 / 單指
+      e.preventDefault();                                // 不轉移焦點 → 不收鍵盤
+      doSpeak();
+    }, { passive: false });
+
+    speakBtn.addEventListener('click', () => {
+      if (Date.now() - spokenAt < 700) return;           // pointerdown 已經唸過
+      doSpeak();
     });
   }
 
@@ -891,6 +921,13 @@ function tryAgain() {
   saveState();
   checkReady();
   focusFirst();
+
+  // ★ 2026-11-20：重做時再唸一次這個詞 ——
+  //   孩子剛聽完、正要重寫，這時候是最該再聽一次的時間點。
+  //   （這是直接點「Try again」的手勢，同步呼叫最可靠。）
+  try {
+    if (current?.targetWord) speakWord(current.targetWord, { lang: PCS_CONFIG.ui.lang });
+  } catch { /* 忽略 */ }
 }
 
 function syncInline() {
@@ -988,6 +1025,18 @@ async function submit() {
   //   自動跳走等於剝奪了他們消化回饋的時間。
   if (!allCorrect) {
     playWrong();
+
+    // ★ 2026-11-20：答錯後立刻把這個詞再唸一次 ——
+    //   孩子要「先聽清楚正確的字長什麼樣」才有能力自己改。
+    //   延後 520ms 等 playWrong 的兩個下行音播完（約 470ms），
+    //   否則語音和提示音疊在一起，反而聽不清。
+    //   ★ 不用立即同步呼叫是因為 iOS 已經在第一次觸控時 primeSpeech()
+    //     解鎖過，後續 setTimeout 內的語音同樣能播出來
+    //     （新詞自動朗讀本來就是這樣播的）。
+    setTimeout(() => {
+      try { speakWord(targetWord, { lang: PCS_CONFIG.ui.lang }); } catch { /* 忽略 */ }
+    }, 520);
+
     diag.className = 'diagnosis no';
     diag.textContent = diagnose(targetWord, blanks, firstWrong.bi, firstWrong.got, target).en;
 
@@ -1194,6 +1243,8 @@ function updateChrome() {
     t('game.progress', { n: Math.min(state.poolIndex + 1, state.order.length), total: state.order.length });
   document.getElementById('reviewLabel').textContent =
     state.retryQueue.length ? `${state.retryQueue.length} ${t('game.pendingReview', { n: '' }).trim()}` : '';
+  // ★ 自己的分數變了 → 常駐排行要立刻跟上（用快取重畫，不發網路請求）
+  repaintRanking();
 }
 
 // ══════════════════════════════════════════════
@@ -1319,15 +1370,42 @@ document.getElementById('rankRefresh').addEventListener('click', () => refreshRa
 // ══ 實時訂閱狀態 ══
 let rankUnsub = null;      // onSnapshot 取消訂閱函式
 let rankStarting = false;  // 防止開啟期間重複訂閱
+let lastRanking = null;    // 最近一次的名單（重畫用，不發請求）
 
+/** 用快取名單重畫（分數一變就呼叫，讓常駐排行即時反映自己） */
+function repaintRanking() {
+  if (!lastRanking || drawer.hidden) return;
+  drawRanking(lastRanking.map(s => ({ ...s })));
+}
+
+/**
+ * ★ 2026-11-20：常駐模式。
+ *   比賽時排行榜要「一直看得到、在旁邊、即時更新」——
+ *   原本只有點 🏆 才打開，而且一打開就壓一層全螢幕遮罩，
+ *   等於每次想看排名都得先擋住題目。
+ *   作法：同一個 DOM 換姿態（body.rank-pinned）：
+ *     · 不加遮罩（drawerBg 永遠隱藏）
+ *     · 固定在右側窄欄（寬螢幕）或底部橫條（窄螢幕），由 CSS 決定
+ *     · 進課程時自動開、自動訂閱 → 任何同學交成績都會即時刷新
+ */
 function openDrawer() {
-  drawer.hidden = false; drawerBg.hidden = false;
+  document.body.classList.add('rank-pinned');
+  drawer.hidden = false;
+  drawerBg.hidden = true;          // 常駐模式不需要遮罩（會擋住答題）
   startRanking();
 }
 
 function closeDrawer() {
-  drawer.hidden = true; drawerBg.hidden = true;
+  document.body.classList.remove('rank-pinned');
+  drawer.hidden = true;
+  drawerBg.hidden = true;
   stopRanking();
+}
+
+/** 進課程後自動把排行榜釘在旁邊 */
+function pinRanking() {
+  if (NO_SESSION) return;
+  openDrawer();
 }
 
 // 開啟抽屜時訂閱：任何同學提交新成績，畫面會即時刷新
@@ -1383,6 +1461,10 @@ async function refreshRankingOnce() {
 }
 
 function drawRanking(ranking) {
+  // ★ 留一份最新的名單：自己的分數一變（updateChrome）就用它重畫，
+  //   不必再打一次 Firestore。
+  lastRanking = ranking.map(s => ({ ...s }));
+
   const body = document.getElementById('rankBody');
   const my = loadMyScore(student.sessionId);
 
