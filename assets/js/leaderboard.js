@@ -83,6 +83,33 @@ export function loadMyScore(sessionId) {
   }
 }
 
+/**
+ * ★ 2026-11-20：把這一局的分數歸零。
+ *
+ * 為什麼需要：`pcs.score.<sessionId>` 的 key 只有「PIN + 學號 + 日期」，
+ *   學生同一天重玩一次，分數會**接著上一局往上加**；
+ *   但 `state.stats`（正確率的分母）是每一局從 0 開始的。
+ *   結果就是排行榜寫出去的 points 是「今天所有局加起來」，
+ *   accuracy 卻只是「最後一局」——
+ *   症狀：正確率 43% 的學生，因為重玩過幾次，分數反而是全班最高。
+ *
+ * 現在：每一局開始時歸零 → 排行榜上的 points 與 accuracy 永遠同一段時間。
+ * （多局之間不互相覆蓋：doc id 會帶局號，排行榜取「最高分那一局」）
+ */
+export function resetMyScore(sessionId) {
+  try { localStorage.removeItem(`pcs.score.${sessionId}`); } catch { /* 忽略 */ }
+}
+
+/**
+ * 本機日期 key（YYYY-MM-DD）。
+ * ★ 不能用 toISOString().slice(0,10) —— 那是 UTC，香港早上 8 點前會算成前一天。
+ *   排名板只比「今天的比賽」，日期錯了會出現「昨天的人還在榜上」。
+ */
+export function todayKey(d = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /** 累加分數 */
 export function addScore(sessionId, delta) {
   const cur = loadMyScore(sessionId);
@@ -163,6 +190,10 @@ export async function fetchClassRanking(student) {
     const q = query(
       collection(db, rankingCollection()),
       where(key.field, '==', key.value),
+      // ★ 只算「今天」—— 比賽是今天的比賽。
+      //   少了這一條，前幾天留下的 rankBoard 會一直留在榜上，
+      //   看起來就像「今天沒玩的人也有分數」。
+      where('dateKey', '==', todayKey()),
       limit(120)          // 一班最多 50 人，綁個上限防止意外讀爆
     );
 
@@ -172,13 +203,14 @@ export async function fetchClassRanking(student) {
     const byStudent = new Map();
     for (const d of snap.docs) {
       const r = d.data();
-      const k = `${r.classNo}|${r.studentName}`;
+      const k = `${r.classNo}|${r.studentName}|${r.difficulty === 'easy' ? 'easy' : 'difficult'}`;
       const prev = byStudent.get(k);
       const pts = r.points ?? 0;
       if (!prev || pts > prev.points) {
         byStudent.set(k, {
           classNo: r.classNo,
           name: r.studentName,
+          difficulty: r.difficulty === 'easy' ? 'easy' : 'difficult',
           points: pts,
           accuracy: r.accuracy ?? 0,
           wordsMastered: r.wordsMastered ?? 0,
@@ -220,6 +252,7 @@ export async function subscribeClassRanking(student, onUpdate, onError) {
     const q = query(
       collection(db, rankingCollection()),
       where(key.field, '==', key.value),
+      where('dateKey', '==', todayKey()),     // ★ 只顯示今天的比賽
       limit(120)
     );
 
@@ -228,13 +261,14 @@ export async function subscribeClassRanking(student, onUpdate, onError) {
       const byStudent = new Map();
       for (const d of snap.docs) {
         const r = d.data();
-        const key = `${r.classNo}|${r.studentName}`;
+        const key = `${r.classNo}|${r.studentName}|${r.difficulty === 'easy' ? 'easy' : 'difficult'}`;
         const pts = r.points ?? 0;
         const prev = byStudent.get(key);
         if (!prev || pts > prev.points) {
           byStudent.set(key, {
             classNo: r.classNo,
             name: r.studentName,
+            difficulty: r.difficulty === 'easy' ? 'easy' : 'difficult',
             points: pts,
             accuracy: r.accuracy ?? 0,
             wordsMastered: r.wordsMastered ?? 0,
@@ -287,7 +321,7 @@ export function buildRankSession({ student, score, startedAt, endedAt, state }) 
     pin: student.pin ?? null,
     group: student.group ?? 'exp',
     phase: student.phase || 'intervention',
-    dateKey: new Date().toISOString().slice(0, 10),
+    dateKey: todayKey(),          // ★ 本機日期（不是 UTC）→ 排行榜只比今天
     ladderVersion: PCS_CONFIG.experiment.version,
 
     startedAt, endedAt,
@@ -295,6 +329,9 @@ export function buildRankSession({ student, score, startedAt, endedAt, state }) 
 
     points: score.points ?? 0,
     accuracy,
+    // ★ 2026-11-24（r68）：這一局是 easy 還是 difficult。
+    //   排行榜要分上下兩欄；研究資料也要能分層（簡單組 / 困難組）。
+    difficulty: state.difficulty === 'easy' ? 'easy' : 'difficult',
     probes: s.probes,
     correctProbes: s.correct,
     wordsMastered: state.masteredWords?.size ?? 0,

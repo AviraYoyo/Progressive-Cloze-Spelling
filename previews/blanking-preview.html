@@ -122,6 +122,9 @@
   /* ── 關卡列表 ── */
   .level {
     display: flex; align-items: center; gap: 12px;
+    /* ★ 2026-11-24：一關可能 2–3 個空，右側資訊變寬 → 窄卡片允許折行，
+       否則 .cloze 會把 .lv-info 擠出卡片外（會被 overflow 裁掉）。 */
+    flex-wrap: wrap;
     padding: 11px 12px; border-radius: 10px;
     background: #FAFAF9; border: 1px solid var(--line);
     margin-bottom: 8px;
@@ -139,7 +142,7 @@
 
   .cloze {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 21px; font-weight: 700; letter-spacing: .1em;
+    font-size: 19px; font-weight: 700; letter-spacing: .06em;
     white-space: pre; flex-shrink: 0;
   }
   .cloze .blank {
@@ -148,7 +151,7 @@
     border-radius: 3px; padding: 0 1px;
   }
 
-  .lv-info { margin-left: auto; text-align: right; font-size: 12px; color: var(--ink-soft); min-width: 0; }
+  .lv-info { margin-left: auto; text-align: right; font-size: 12px; color: var(--ink-soft); min-width: 130px; }
   .lv-info .pat {
     display: inline-block; background: var(--orange-soft); color: var(--orange-dark);
     padding: 1px 7px; border-radius: 5px; font-weight: 700; font-size: 11.5px;
@@ -217,7 +220,7 @@
 
 <header>
   <h1>Progressive Cloze Spelling — 挖空演算法預覽</h1>
-  <p>每關挖一個拼寫模式，都挑權重最高的 · 無提示的整詞聽寫另開一個介面 · 英式拼寫 BrE</p>
+  <p>每關挖 2–3 個字母（長詞 3 個），挑權重最高的結構 · 詞尾 e 已降到最低權重 · 無提示的整詞聽寫另開一個介面 · 英式拼寫 BrE</p>
 </header>
 
 <div class="wrap">
@@ -300,20 +303,25 @@ function renderCard(word) {
 
   const patSummary = a.patterns.length
     ? a.patterns.map(p => `${p.pattern}<span style="opacity:.55">(${p.weight})</span>`).join(' · ')
-    : '<span style="opacity:.6">無 pattern → 用單字母退讓策略</span>';
+    : '<span style="opacity:.6">無 pattern → 全部用單字母靶點（e 排最後）</span>';
 
   const levelsHtml = a.levels.map(L => {
-    const cat = CATEGORIES[L.target.category];
-    const pct = Math.min(100, L.target.weight);
+    const list = L.targets?.length ? L.targets : (L.target ? [L.target] : []);
+    const primary = list.reduce((m, t) => (t.weight > (m?.weight ?? -1) ? t : m), null);
+    const cat = CATEGORIES[primary?.category];
+    const pct = Math.min(100, primary?.weight ?? 0);
+    // ★ 一關可能是多個靶點：只顯示主靶點 + 「+N」，完整清單放 title
+    const extra = list.length > 1 ? ` +${list.length - 1}` : '';
+    const patsText = list.map(t => t.pattern).join(' + ');
     return `
     <div class="level lv${L.level}">
       <span class="lv-tag">L${L.level}</span>
       <span class="cloze">${renderClozeHtml(L.word, L.blanks)}</span>
       <span class="lv-info">
-        <span class="pat">${L.target.pattern}</span>
-        <span class="wt">權重 ${L.target.weight}</span>
+        <span class="pat" title="${patsText}">${primary?.pattern ?? '?'}${extra}</span>
+        <span class="wt">${L.blankCount} 空</span>
         <div class="wt-bar" style="--pct:${pct}%"></div>
-        <span class="nm" title="${(L.target.note || '').replace(/"/g,'&quot;')}">${L.target.note || cat?.label || ''}</span>
+        <span class="nm" title="${(primary?.note || '').replace(/"/g,'&quot;')}">${primary?.note || cat?.label || ''}</span>
       </span>
     </div>`;
   }).join('');
@@ -321,17 +329,18 @@ function renderCard(word) {
   const graphemes = a.graphemes
     .map(g => `<span class="gch ${g.kind === 'pattern' ? 'pat' : ''}">${g.text}</span>`).join('');
 
-  // 判斷提示：關數是否合理
+  // 判斷提示：關數與每關空數
   const nPat = a.patterns.length;
+  const perLevel = a.levels.map(L => L.blankCount).join(' / ');
   let verdict = '';
   if (nPat >= 3) {
-    verdict = `<div class="verdict"><b>${nPat} 個高權重模式</b> → 3 關都用不同模式，層次最完整。</div>`;
+    verdict = `<div class="verdict"><b>${nPat} 個高權重模式</b> → 依權重分配到 ${a.levels.length} 關（每關 ${perLevel} 空）。</div>`;
   } else if (nPat === 2) {
-    verdict = `<div class="verdict"><b>只有 2 個 pattern</b> → L1、L2 各挖一個，沒有第三關。</div>`;
+    verdict = `<div class="verdict"><b>2 個 pattern</b> → ${a.levels.length} 關、每關 ${perLevel} 空，其餘用單字母補。</div>`;
   } else if (nPat === 1) {
-    verdict = `<div class="verdict warn"><b>只有 1 個 pattern（${a.patterns[0].pattern}）</b> → L1 挖它，L2 用單字母退讓補。</div>`;
+    verdict = `<div class="verdict warn"><b>只有 1 個 pattern（${a.patterns[0].pattern}）</b> → 其餘關卡靠單字母補，e 已降到最低權重。</div>`;
   } else {
-    verdict = `<div class="verdict warn"><b>詞內沒有任何 pattern</b> → 全部靠單字母退讓，最多 2 關。</div>`;
+    verdict = `<div class="verdict warn"><b>詞內沒有任何 pattern</b> → 全部靠單字母（e 排在最後）。</div>`;
   }
 
   return `

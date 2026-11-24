@@ -53,6 +53,17 @@ const STRINGS = {
     'login.audioLoading': 'Loading voices… tap again',
     'login.audioNone': 'No speech support here',
     'login.audioWarn': 'Ready · but no British voice',
+    'login.audioPick': 'Tap to choose a voice',
+
+    // ── 首頁「選音色」彈窗（2026-11-20）──
+    'voice.title': 'Choose a voice',
+    'voice.sub': 'Tap a voice to hear it — the one you pick is used when you press Start.',
+    'voice.british': 'British English',
+    'voice.american': 'American English',
+    'voice.done': 'Done',
+    'voice.using': 'Using',
+    'voice.empty': 'No voices of this accent on this device',
+    'voice.few': 'Only {n} on this device — more can be added in your system settings.',
 
     // ── 老師後台登入頁 admin-login.html（2026-10-16 補 i18n，Bug 9）──
     'auth.brand': 'Teacher Console',
@@ -111,6 +122,16 @@ const STRINGS = {
     'sync.pendingTitle': '{n} answers are saved on this device and waiting to upload.\nClosing the tab will not lose them — they upload automatically when the connection returns.',
     'sync.errorTitle': 'Answers are saved on this device but cannot reach the server. Check the connection, or ask your teacher to check the Security Rules.',
 
+    // ── 難度選擇 ──
+    'diff.title': 'Choose your level',
+    'diff.sub': 'Start with Easy if you like. You can try Difficult afterwards.',
+    'diff.easy': 'Easy',
+    'diff.easyDesc': 'One spelling pattern per question. Each word comes twice.',
+    'diff.hard': 'Difficult',
+    'diff.hardDesc': 'Two or three blanks per question, and mistakes come back to review.',
+    'diff.easyTag': 'Easy',
+    'diff.hardTag': 'Difficult',
+
     // ── 結算 ──
     'done.title': 'Well done!',
     'done.sub': 'You finished {n} words',
@@ -120,6 +141,8 @@ const STRINGS = {
     'done.correct': 'Letters correct',
     'done.recap': 'Words you practised',
     'done.back': 'Back',
+    'done.continueHard': 'Continue with Difficult',
+    'done.playAgain': 'Play again',
 
     // ── 排名 ──
     'rank.title': 'Class Ranking',
@@ -128,6 +151,9 @@ const STRINGS = {
     'rank.points': 'Points',
     'rank.acc': 'Accuracy',
     'rank.waiting': 'Waiting for other pupils…',
+    'rank.easyGroup': 'Easy',
+    'rank.hardGroup': 'Difficult',
+    'rank.groupEmpty': 'No one yet',
     // ★ 2026-10-16：無法分組時的明確提示（正常流程不會出現，別讓學生以為網路壞了）
     'rank.noGroup': 'Ranking is not set up for this class yet. Ask your teacher.',
     'rank.readFail': 'Ranking could not be loaded right now. Check your connection, or ask your teacher to publish the Firestore rules.',
@@ -173,6 +199,17 @@ const STRINGS = {
     'login.audioLoading': '正在載入語音…請再點一次',
     'login.audioNone': '此瀏覽器不支援語音',
     'login.audioWarn': '可用，但沒有英式語音',
+    'login.audioPick': '點一下選擇音色',
+
+    // ── 首頁「選音色」彈窗（2026-11-20）──
+    'voice.title': '選擇音色',
+    'voice.sub': '點一下就聽一次；選好的音色，按「開始」進課後會一直用它。',
+    'voice.british': '英式發音',
+    'voice.american': '美式發音',
+    'voice.done': '完成',
+    'voice.using': '目前使用',
+    'voice.empty': '這台裝置沒有這個口音的語音',
+    'voice.few': '這台裝置只有 {n} 個；可在系統設定裡安裝更多。',
 
     // ── 老師後台登入頁 admin-login.html（2026-10-16 補 i18n，Bug 9）──
     'auth.brand': '老師控制台',
@@ -231,6 +268,16 @@ const STRINGS = {
     'sync.pendingTitle': '{n} 筆作答已安全保存在這台裝置，正在等待上傳。\n關閉分頁不會遺失，網絡恢復後會自動上傳。',
     'sync.errorTitle': '作答資料保存在這台裝置，但無法傳到伺服器。請確認網絡，或請老師檢查 Security Rules。',
 
+    // ── 難度選擇 ──
+    'diff.title': '選擇難度',
+    'diff.sub': '可以先從簡單開始，這一輪結束後還能挑戰困難。',
+    'diff.easy': '簡單',
+    'diff.easyDesc': '每題只挖一個結構，每個詞只考兩遍。',
+    'diff.hard': '困難',
+    'diff.hardDesc': '每題 2–3 個空，答錯的結構會安排補考。',
+    'diff.easyTag': '簡單',
+    'diff.hardTag': '困難',
+
     // ── 結算 ──
     'done.title': '完成！',
     'done.sub': '你練完了 {n} 個詞',
@@ -240,6 +287,8 @@ const STRINGS = {
     'done.correct': '答對字母',
     'done.recap': '你練過的詞',
     'done.back': '返回',
+    'done.continueHard': '繼續挑戰困難',
+    'done.playAgain': '再玩一次',
 
     // ── 排名 ──
     'rank.title': '班級排名',
@@ -248,6 +297,9 @@ const STRINGS = {
     'rank.points': '分數',
     'rank.acc': '正確率',
     'rank.waiting': '等待其他同學…',
+    'rank.easyGroup': '簡單模式',
+    'rank.hardGroup': '困難模式',
+    'rank.groupEmpty': '還沒有人',
     // ★ 2026-10-16：無法分組時的明確提示（正常流程不會出現，別讓學生以為網路壞了）
     'rank.noGroup': '這個班還未設定排名，請向老師確認。',
     'rank.readFail': '排名暫時讀取不到，請檢查網絡，或請老師確認 Firestore 規則已發佈。',

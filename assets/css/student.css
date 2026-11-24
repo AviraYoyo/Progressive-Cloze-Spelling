@@ -139,13 +139,124 @@
 
 .tts-btn:active { background: var(--orange-soft); }
 .tts-icon { font-size: 24px; line-height: 1; }
-.tts-text { display: flex; flex-direction: column; gap: 1px; }
+.tts-text { display: flex; flex-direction: column; gap: 1px; flex: 1; }
 .tts-text strong { font-size: 14.5px; color: var(--ink); }
 .tts-text small  { font-size: 12.5px; color: var(--ink-soft); }
+.tts-caret { font-size: 14px; color: var(--ink-mute); flex-shrink: 0; }
 
 .tts-btn.tts-ok   { border-color: var(--correct); border-style: solid; background: var(--correct-dim); }
 .tts-btn.tts-warn { border-color: #F59E0B; border-style: solid; background: #FEF3C7; }
 .tts-btn.tts-bad  { border-color: var(--wrong); border-style: solid; background: var(--wrong-dim); }
+
+/* ═══════════════════════════════════════════════
+   ★ 2026-11-20：音色選擇彈窗（首頁 Test sound）
+   ═══════════════════════════════════════════════ */
+.vox-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+  background: rgba(28, 22, 16, .45);
+  animation: voxFade .13s ease-out;
+}
+.vox-backdrop[hidden] { display: none !important; }
+@keyframes voxFade { from { opacity: 0 } to { opacity: 1 } }
+
+.vox-card {
+  width: 100%; max-width: 420px;
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  background: var(--card);
+  border-radius: 18px;
+  padding: 18px 18px 14px;
+  box-shadow: 0 20px 60px rgba(28, 22, 16, .3);
+  animation: voxPop .16s cubic-bezier(.2, .8, .3, 1);
+}
+@keyframes voxPop {
+  from { opacity: 0; transform: translateY(8px) scale(.98) }
+  to   { opacity: 1; transform: none }
+}
+
+.vox-head { display: flex; align-items: flex-start; gap: 10px; }
+.vox-title { margin: 0; font-size: 17px; font-weight: 800; color: var(--ink); flex: 1; }
+.vox-x {
+  width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid var(--line); background: var(--card);
+  font-size: 15px; color: var(--ink-mute); cursor: pointer;
+}
+.vox-x:hover { background: var(--card-alt); color: var(--ink); }
+
+.vox-sub {
+  margin: 6px 0 14px; font-size: 12.5px; line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.vox-group { margin-bottom: 14px; }
+.vox-h {
+  display: flex; align-items: center; gap: 7px;
+  margin: 0 0 8px; font-size: 12.5px; font-weight: 800;
+  color: var(--ink-mid); text-transform: uppercase; letter-spacing: .04em;
+}
+.vox-flag { font-size: 15px; }
+
+.vox-list { display: flex; flex-direction: column; gap: 7px; }
+
+.vox-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 48px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--card-alt);
+  text-align: left; cursor: pointer;
+  transition: border-color .15s, background .15s, transform .1s;
+}
+.vox-row:hover { border-color: var(--orange-line); background: #fff; }
+.vox-row:active { transform: scale(.99); }
+.vox-row.on {
+  border-color: var(--orange);
+  background: var(--orange-soft);
+}
+
+.vox-mark {
+  width: 26px; height: 26px; flex-shrink: 0;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: #fff; border: 1.5px solid var(--line);
+  font-size: 12px; color: var(--orange-dark); font-weight: 800;
+}
+.vox-row.on .vox-mark {
+  background: var(--orange); border-color: var(--orange); color: #fff;
+}
+
+.vox-nm {
+  flex: 1; font-size: 14.5px; font-weight: 700; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vox-tag {
+  flex-shrink: 0;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .06em;
+  color: var(--ink-mute); background: #fff;
+  border: 1px solid var(--line); border-radius: 20px;
+  padding: 2px 7px;
+}
+
+.vox-empty {
+  margin: 0; padding: 10px 12px; border-radius: 10px;
+  background: var(--card-alt); color: var(--ink-mute); font-size: 12.5px;
+  border: 1px dashed var(--line);
+}
+.vox-note {
+  margin: 6px 2px 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-mute);
+}
+
+.vox-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
+.vox-done {
+  min-height: 44px; padding: 0 26px;
+  border-radius: 12px; border: 0;
+  background: linear-gradient(135deg, #C2410C, #F97316);
+  color: #fff; font-size: 14.5px; font-weight: 800; cursor: pointer;
+}
+.vox-done:active { transform: scale(.98); }
 
 .login-links {
   margin-top: 18px;
@@ -777,6 +888,123 @@
   font-weight: 800;
 }
 
+/* ── 結算頁按鈕組（再玩一次 / 繼續挑戰困難 / 返回）── */
+.result-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.btn-continue,
+.btn-again {
+  width: 100%;
+  min-height: var(--tap);
+  border-radius: var(--r);
+  font-size: 16.5px;
+  font-weight: 800;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+
+/* 繼續挑戰困難：整張卡裡最想被按的那顆 → 用主色橙 */
+.btn-continue {
+  background: var(--orange);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(249,115,22,.3);
+}
+
+.btn-continue:active { transform: scale(.98); }
+
+/* 再玩一次：次要動作 → 白底描邊，跟「返回」區隔開 */
+.btn-again {
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--line-mid);
+}
+
+.btn-again:active { transform: scale(.98); background: var(--card-alt); }
+
+/* ── 難度選擇畫面 ──
+ * 極簡版（2026-11-24）：只有大標題 + 兩個並排大方框（emoji + 名字）。
+ * 不寫說明文字 —— 小朋友不會讀，字一多選項就被擠小。 */
+.diff-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 34px 24px 30px;
+  text-align: center;
+  animation: fadeUp .4s ease-out;
+}
+
+.diff-card h2 {
+  margin: 0 0 26px;
+  font-size: 27px;
+  font-weight: 900;
+  letter-spacing: -.01em;
+}
+
+.diff-rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.diff-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 168px;
+  padding: 20px 12px;
+  border-radius: var(--r);
+  border: 2.5px solid var(--line);
+  background: var(--card-alt);
+  transition: transform .12s ease, border-color .12s ease, background .12s ease,
+              box-shadow .12s ease;
+}
+
+.diff-opt:active { transform: scale(.97); }
+
+.diff-opt.easy { border-color: #C7E9A8; background: #F7FCF2; }
+.diff-opt.hard { border-color: var(--orange-line); background: #FFF8F1; }
+
+.diff-opt.easy:active { border-color: var(--correct); background: var(--correct-dim); }
+.diff-opt.hard:active { border-color: var(--orange); background: var(--orange-soft); }
+
+.do-badge { font-size: 52px; line-height: 1; }
+
+.do-name {
+  font-size: 21px;
+  font-weight: 900;
+  letter-spacing: .01em;
+}
+
+.diff-opt.easy .do-name { color: #3F7A12; }
+.diff-opt.hard .do-name { color: var(--orange-dark); }
+
+/* 手機／窄螢幕：兩欄會擠成很窄的長條 → 改成上下堆疊，方框仍保持大 */
+@media (max-width: 520px) {
+  .diff-rows { grid-template-columns: 1fr; gap: 12px; }
+  .diff-opt { flex-direction: row; min-height: 96px; gap: 16px; }
+  .do-badge { font-size: 40px; }
+  .do-name { font-size: 19px; }
+}
+
+/* 結算頁標題旁的小標籤：這一局的難度 */
+.diff-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.diff-chip.easy { background: var(--correct-dim); color: #3F7A12; border: 1px solid #C7E9A8; }
+.diff-chip.hard { background: var(--orange-soft); color: var(--orange-dark); border: 1px solid var(--orange-line); }
+
 /* ── 載入 ── */
 .loading {
   display: grid;
@@ -901,6 +1129,60 @@
 
 .rank-loading { padding: 40px 20px; text-align: center; color: var(--ink-mute); font-size: 14px; }
 
+/* ── 排行榜分欄（r68）：上排 Easy、下排 Difficult ──
+ *
+ *  為什麼要分：Easy 每題只挖一個結構、每個詞只考兩遍，題量只有 Difficult 的
+ *  三分之一。混在一起排名，等於比「做了多少」而不是「做得多好」。
+ */
+.rank-group + .rank-group {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line-mid);
+}
+
+.rank-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+  font-size: 12.5px;
+  font-weight: 900;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--ink-mid);
+}
+
+.rg-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ink-mute);
+}
+
+.rank-group.easy .rg-dot { background: var(--correct); }
+.rank-group.difficult .rg-dot { background: var(--orange); }
+.rank-group.easy .rank-group-head { color: #3F7A12; }
+.rank-group.difficult .rank-group-head { color: var(--orange-dark); }
+
+/* 目前這一局所屬的欄位 → 標題後面加一個小標記，兩欄都在時才分得清 */
+.rank-group.current .rank-group-head::after {
+  content: '●';
+  font-size: 8px;
+  margin-left: auto;
+  color: var(--orange);
+}
+
+.rank-group.easy.current .rank-group-head::after { color: var(--correct); }
+
+.rank-empty {
+  padding: 14px 10px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  background: var(--card-alt);
+  border-radius: 10px;
+}
+
 .rank-list { list-style: none; margin: 0; padding: 0; }
 
 .rank-list li {
@@ -1004,9 +1286,19 @@
   body.rank-pinned .rank-list .rk { width: 22px; font-size: 13px; }
   body.rank-pinned .rank-list .nm { font-size: 13px; }
   body.rank-pinned .rank-list .pt { font-size: 13px; min-width: 34px; }
-  /* 窄欄塞不下四個欄位 → 只留 名次 / 名字 / 分數 */
-  body.rank-pinned .rank-list .sc,
-  body.rank-pinned .rank-list .acc { display: none; }
+  /* 窄欄塞不下學號 → 藏掉；但**正確率一定要留著**：
+     只顯示分數時，「分數高但正確率低」看起來就像系統算錯。 */
+  body.rank-pinned .rank-list .sc { display: none; }
+  body.rank-pinned .rank-list .acc {
+    display: inline-block;
+    padding: 1px 5px; font-size: 10.5px; min-width: 30px; text-align: center;
+  }
+
+  /* 分欄後欄位變高 → 兩欄之間的分隔線收窄，讓 10 名還塞得下 */
+  body.rank-pinned .rank-group + .rank-group { margin-top: 9px; padding-top: 8px; }
+  body.rank-pinned .rank-group-head { font-size: 10.5px; gap: 5px; margin-bottom: 5px; }
+  body.rank-pinned .rg-dot { width: 7px; height: 7px; }
+  body.rank-pinned .rank-empty { padding: 8px 6px; font-size: 11px; }
 
   body.rank-pinned .drawer-foot { display: none; }
   body.rank-pinned .my-rank { margin-top: 8px; padding: 9px; font-size: 12px; }
@@ -1055,10 +1347,25 @@
     flex: 0 0 auto;
     margin: 0; padding: 7px 10px; gap: 6px;
   }
-  body.rank-pinned .rank-list .sc,
-  body.rank-pinned .rank-list .acc { display: none; }
+  body.rank-pinned .rank-list .sc { display: none; }
+  body.rank-pinned .rank-list .acc {
+    display: inline-block; padding: 1px 5px; font-size: 10.5px;
+  }
   body.rank-pinned .rank-list .nm { max-width: 92px; font-size: 13px; }
   body.rank-pinned .rank-list .pt { min-width: 0; font-size: 13px; }
+
+  /* 底部橫條只有 92px 高 → 兩欄改成左右並排，各自橫向滑動 */
+  body.rank-pinned .rank-group {
+    display: flex; flex-direction: column; gap: 4px;
+    flex: 0 0 auto;
+    margin: 0 !important; padding: 0 10px 0 0;
+    border-top: 0 !important;
+    border-right: 1px solid var(--line);
+  }
+  body.rank-pinned .rank-group:last-child { border-right: 0; padding-right: 0; }
+  body.rank-pinned .rank-group-head { margin-bottom: 0; font-size: 10px; line-height: 1; }
+  body.rank-pinned .rg-dot { width: 6px; height: 6px; }
+  body.rank-pinned .rank-empty { display: none; }
 
   body.rank-pinned .drawer-foot,
   body.rank-pinned .my-rank,

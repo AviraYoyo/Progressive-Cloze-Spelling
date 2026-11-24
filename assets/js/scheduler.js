@@ -13,9 +13,16 @@ import { PCS_CONFIG } from './config.js';
 const CFG = PCS_CONFIG.experiment;
 
 /** 建立一個新的作答狀態 */
-export function initState(wordIds, { advanced = false } = {}) {
+export function initState(wordIds, { advanced = false, difficulty = 'difficult' } = {}) {
   return {
     itemSeq: 0,
+    // ★ 2026-11-24（r68）：這一局的難度。
+    //   'easy'      → 每關只挖一個結構、每個詞只考兩遍（見 easy 旗標）
+    //   'difficult' → 原規則（每關 2–3 個空、最多 3 關、回溯重測）
+    //   難度會寫進 exposure / sessions / rankBoard —— 排行榜要分欄，
+    //   研究資料也要能分層分析（簡單組 vs 困難組）。
+    difficulty: difficulty === 'easy' ? 'easy' : 'difficult',
+    easy: difficulty === 'easy',
     newWordsServed: 0,      // 已發過多少個「全新詞」→ 用來計算重測到期
     retryQueue: [],         // 待重測佇列
     consecutiveRetries: 0,
@@ -26,6 +33,22 @@ export function initState(wordIds, { advanced = false } = {}) {
     levelProgress: new Map(),
     // ★ 還沒完成所有關卡的詞（答對 L1 但還有 L2 → 排進來，等新詞發完再輪回去）
     levelQueue: [],
+    // ★★ 2026-11-24：本局內的「逐靶點記憶」。
+    //   wordId → Map<targetKey, 'pass' | 'fail'>
+    //
+    //   為什麼需要：老師要求「這次答對的字母，下次不再挖；答錯的要再挖」。
+    //   靶點（target）才是挖空的單位 —— 一個 pattern 可能跨 2 格，
+    //   用字母記會把 ss 的兩個 s 拆散。
+    //
+    //   只在本局有效：initState 時是空的，換一局重新洗牌。
+    //   （跨局記憶的難點是「同一個詞會越來越難湊夠空」，先不做。）
+    targetMastery: new Map(),
+    // ★★ 2026-11-24（r68）：這個詞「錯過哪些結構」——**只增不減**。
+    //
+    //   targetMastery 會被「後來答對」覆蓋成 'pass'，但老師要的
+    //   「重玩時把之前錯的再考一次」需要一份不會被洗掉的錯誤紀錄。
+    //   重玩（play again / 轉 difficult）時會把它轉成新一局的初始權重加成。
+    wrong: new Map(),
     // ★★ Advanced mode：整詞自行填寫的考試模式。
     //   每個詞**只出現一次** —— 不排重測、不排 level 佇列、不回來。
     //   這是「像考試一樣」的關鍵：答錯就是錯了，沒有第二次機會。
@@ -75,6 +98,30 @@ export function gapFor(failCount) {
 }
 
 /**
+ * ★ 2026-11-24：本局內的逐靶點記憶讀寫。
+ *
+ * 出題時 composeLevel(analysis, n, masteryFor(state, wordId)) 會用它：
+ *   答對過的靶點 → 權重 ×0.12（幾乎不再選）
+ *   答錯過的靶點 → 權重 +12（下一關優先再挖）
+ */
+export function masteryFor(state, wordId) {
+  return state.targetMastery?.get(wordId) ?? EMPTY_MASTERY;
+}
+
+/** 避免每次呼叫都新建 Map（composeFromPool 只讀） */
+const EMPTY_MASTERY = new Map();
+
+/** status: 'pass' | 'fail'（後寫入的覆蓋前面的 —— 錯了又答對就是掌握了） */
+export function setTargetMastery(state, wordId, keys, status) {
+  if (!state.targetMastery) state.targetMastery = new Map();
+  let m = state.targetMastery.get(wordId);
+  if (!m) { m = new Map(); state.targetMastery.set(wordId, m); }
+  for (const k of keys) {
+    if (k) m.set(k, status);
+  }
+}
+
+/**
  * 取下一個要出的題。
  * @returns {{kind:'retry'|'new', wordId:string, probeIndex?:number, ...}}
  */
@@ -99,7 +146,10 @@ export function nextItem(state) {
     //   nextItem 每次都回傳同一筆 → 學生按 Skip 也跳不出去（無限迴圈）。
     //   推進之後，它必須再等 gap 個新詞才會再到期，分散練習才有意義。
     state.newWordsServed += 1;
-    return { kind: 'retry', ...pick };
+    // ★ 2026-11-24：必須帶 exposureIndex。
+    //   舊版這裡沒回傳 → play.html 兜底成 0 → 所有重測都寫 exposureId = ..._0
+    //   → 覆蓋該詞的第一條 exposure（新增的 targets 數組也會被覆蓋掉）。
+    return { kind: 'retry', ...pick, exposureIndex: state.exposureCount.get(pick.wordId) ?? 0 };
   }
 
   // 否則發新詞
@@ -140,7 +190,10 @@ export function nextItem(state) {
     const pick = pending[0];
     state.consecutiveRetries += 1;
     state.newWordsServed += 1;
-    return { kind: 'retry', ...pick };
+    // ★ 2026-11-24：必須帶 exposureIndex。
+    //   舊版這裡沒回傳 → play.html 兜底成 0 → 所有重測都寫 exposureId = ..._0
+    //   → 覆蓋該詞的第一條 exposure（新增的 targets 數組也會被覆蓋掉）。
+    return { kind: 'retry', ...pick, exposureIndex: state.exposureCount.get(pick.wordId) ?? 0 };
   }
 
   // 真的沒東西了
@@ -151,12 +204,27 @@ export function nextItem(state) {
  * 記錄作答，決定是否入重測佇列。
  *
  * @param {object} state
- * @param {object} r { wordId, level, probeIndex, correct, expect, got, phonClass, ms, attemptNo }
+ * @param {object} r { wordId, level, probeIndex, correct, expect, got, phonClass, ms, attemptNo, spec, targetKey }
+ *
+ * ★ 2026-11-24 新增 spec / targetKey：
+ *   · targetKey = 這一格屬於哪個語音結構。重測時用它把「答錯的那個結構」
+ *     重新挖出來，其餘名額重新組裝（不再把整組空原樣重播）。
+ *   · spec = 整組空組的快照，只當**兜底**用（舊存檔沒有 targetKey 時、
+ *     或重新組裝後那一格竟然不是空格時）。
  */
 export function recordAnswer(state, r) {
   state.stats.probes += 1;
   state.stats.totalMs += r.ms ?? 0;
   if (r.correct) state.stats.correct += 1;
+
+  // ★ 2026-11-24（r68）：這個詞錯過哪些結構，只增不減。
+  //   重玩時（play again / 轉 difficult）用來把「之前錯的」排到最前面再考一次。
+  if (!r.correct && r.targetKey) {
+    if (!state.wrong) state.wrong = new Map();
+    let set = state.wrong.get(r.wordId);
+    if (!set) { set = new Set(); state.wrong.set(r.wordId, set); }
+    set.add(r.targetKey);
+  }
 
   // ★★ Advanced mode：每個詞只出現一次 → 答錯也不排重測。
   //   這是「像考試一樣」的關鍵：Unlike progressive，沒有回頭補救的機會。
@@ -178,6 +246,17 @@ export function recordAnswer(state, r) {
     return { queued: false, mastered: null };
   }
 
+  // ★ 2026-11-24（r68）：Easy 模式「每個詞只考兩遍」。
+  //
+  //   第二遍就是補考（同一關、同一個結構）。如果補考又錯，
+  //   不回佇列 —— 這個詞就結束了（記錄在案，重玩時再考）。
+  //
+  //   play.html 傳 retryAllowed=false 表示「這一題本身就是補考」，
+  //   所以只在「第一次答錯」時排一次。用旗標而不是 state 內部計數，
+  //   是因為一關可能同時有多個 space（oo 有 2 格）→ 會連續呼叫多次，
+  //   內部計數會把第二格誤判成「已經補考過」。
+  if (r.retryAllowed === false) return { queued: false, mastered: null };
+
   // 錯了 → 找現有項目累積 failCount，否則新建
   let item = state.retryQueue.find(q => q.key === key);
   if (!item) {
@@ -193,9 +272,17 @@ export function recordAnswer(state, r) {
       failCount: 0,
       queuedAtNewWords: state.newWordsServed,
       gap: 0,
+      spec: r.spec ?? null,     // ★ 這一關的空組快照（舊存檔的兜底，正常不再使用）
+      // ★ 2026-11-24（r67）：這個空屬於哪個靶點。
+      //   重測時靠它把「答錯的那個結構」重新挖出來，其餘名額重新組裝。
+      targetKey: r.targetKey ?? null,
     };
     state.retryQueue.push(item);
+  } else if (!item.spec && r.spec) {
+    // 舊存檔續玩：佇列項沒有 spec 時補上，避免重測退化成重新組裝
+    item.spec = r.spec;
   }
+  if (!item.targetKey && r.targetKey) item.targetKey = r.targetKey;
 
   item.failCount += 1;
   item.gap = gapFor(item.failCount);
@@ -228,6 +315,10 @@ export function serialise(state) {
     exposureCount: [...state.exposureCount],
     levelProgress: [...state.levelProgress],
     levelQueue: [...state.levelQueue],
+    // ★ 嵌套 Map：wordId → targetKey → 'pass'|'fail'
+    targetMastery: [...(state.targetMastery ?? new Map())].map(([k, m]) => [k, [...m]]),
+    // ★ 嵌套 Map：wordId → Set<targetKey>（只增不減的錯誤紀錄）
+    wrong: [...(state.wrong ?? new Map())].map(([k, s]) => [k, [...s]]),
   };
 }
 
@@ -240,6 +331,15 @@ export function deserialise(obj) {
     exposureCount: new Map(obj.exposureCount ?? []),
     levelProgress: new Map(obj.levelProgress ?? []),
     levelQueue: [...(obj.levelQueue ?? [])],
+    // ★ 舊存檔沒有這個欄位 → 空 Map（等於「這局還沒答對過任何靶點」）
+    targetMastery: new Map(
+      (obj.targetMastery ?? []).map(([k, arr]) => [k, new Map(arr ?? [])])
+    ),
+    // ★ 舊存檔沒有 → 空 Map（重玩時就沒有「之前錯的」可優先）
+    wrong: new Map((obj.wrong ?? []).map(([k, arr]) => [k, new Set(arr ?? [])])),
+    // ★ 舊存檔是 r67 以前開的局，那時只有 difficult 一種規則
+    difficulty: obj.difficulty === 'easy' ? 'easy' : 'difficult',
+    easy: obj.difficulty === 'easy',
     advanced: !!obj.advanced,       // ★ 舊的存档沒有這個欄位 → 當作一般模式
     served: obj.served ?? 0,          // ★ 舊的存档沒有這個欄位
   };
@@ -247,12 +347,16 @@ export function deserialise(obj) {
 
 /**
  * 一局最多發幾題。
- * ★ 詞數 × 每詞最多 3 關 × 2（首次 + 重測），再加一個緩衝。
- *   這是「學生一直答錯」時的保險，確保一局一定會結束。
+ *
+ * ★ 2026-11-24：n*6+10 → n*9+12。
+ *   舊上限是按「一關 1 個空」估的；現在一關 2–3 個空，答錯會為**每個空**
+ *   各生成一條重測項，題量自然變多。舊上限會把整局提早截斷，
+ *   學生明明還沒做完就被判定結束。
+ *   這仍是保險，不是目標值 —— 一局正常約 n×(2~3 關) + 少量重測。
  */
 function maxItemsFor(state) {
   const n = state.order?.length || 0;
-  return n * 6 + 10;
+  return n * 9 + 12;
 }
 
 /**

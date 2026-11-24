@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-20-r56';
+  var BUILD = '2026-11-24-r71';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-11-20-r56">
-<link rel="stylesheet" href="./assets/css/student.css?v=2026-11-20-r56">
+<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-11-24-r71">
+<link rel="stylesheet" href="./assets/css/student.css?v=2026-11-24-r71">
 <style>
 .login-page {
   min-height: 100dvh;
@@ -211,14 +211,15 @@ window.addEventListener('unhandledrejection', function (e) {
 
     <p id="joinErr" class="join-err" role="alert" hidden></p>
 
-    <!-- ── TTS 自檢 ── -->
+    <!-- ── TTS 自檢 / 選音色 ── -->
     <div class="tts-check">
-      <button id="ttsBtn" class="tts-btn" type="button">
+      <button id="ttsBtn" class="tts-btn" type="button" aria-haspopup="dialog">
         <span class="tts-icon" aria-hidden="true">🔊</span>
         <span class="tts-text">
           <strong data-i18n="login.tryAudio">Test sound</strong>
-          <small id="ttsStatus">Tap to check the audio</small>
+          <small id="ttsStatus" data-i18n="login.audioPick">Tap to choose a voice</small>
         </span>
+        <span class="tts-caret" aria-hidden="true">▾</span>
       </button>
     </div>
 
@@ -235,41 +236,160 @@ window.addEventListener('unhandledrejection', function (e) {
 
 <div class="lang-slot" id="langSlot" style="position:fixed;top:14px;right:16px;z-index:60"></div>
 
+<!-- ══════════════════════════════════════════════
+     ★ 2026-11-20：音色選擇彈窗
+     點「Test sound」打開；英式 / 美式各 3 個（實際列出這台裝置有的）。
+     點一行 = 立刻試聽 + 選定；按 Start 進課後全站都用這個音色。
+     ══════════════════════════════════════════════ -->
+<div class="vox-backdrop" id="voxBackdrop" hidden>
+  <div class="vox-card" role="dialog" aria-modal="true" aria-labelledby="voxTitle">
+    <div class="vox-head">
+      <h2 class="vox-title" id="voxTitle" data-i18n="voice.title">Choose a voice</h2>
+      <button class="vox-x" id="voxClose" type="button" aria-label="Close">✕</button>
+    </div>
+    <p class="vox-sub" data-i18n="voice.sub">Tap a voice to hear it — the one you pick is used when you press Start.</p>
+
+    <section class="vox-group">
+      <h3 class="vox-h"><span class="vox-flag" aria-hidden="true">🇬🇧</span><span data-i18n="voice.british">British English</span></h3>
+      <div class="vox-list" id="voxGB"></div>
+    </section>
+
+    <section class="vox-group">
+      <h3 class="vox-h"><span class="vox-flag" aria-hidden="true">🇺🇸</span><span data-i18n="voice.american">American English</span></h3>
+      <div class="vox-list" id="voxUS"></div>
+    </section>
+
+    <div class="vox-foot">
+      <button class="vox-done" id="voxDone" type="button" data-i18n="voice.done">Done</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
-import { primeSpeech, speechStatus, speakSentence } from './assets/js/speech.js?v=2026-11-20-r56';
-import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-11-20-r56';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-20-r56';
-import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-11-20-r56';
+import {
+  primeSpeech, speechStatus, speakSentence,
+  listVoiceChoices, getVoicePref, setVoicePref, speakWithVoice,
+} from './assets/js/speech.js?v=2026-11-24-r71';
+import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-11-24-r71';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-24-r71';
+import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-11-24-r71';
 
 initLang();
 applyI18n(document);
 mountLangToggle(document.getElementById('langSlot'), {
-  onChange: () => applyI18n(document),
+  onChange: () => {
+    applyI18n(document);
+    updateTtsLabel();                                  // 「目前使用 …」也要跟著語言
+    if (!voxBackdrop.hidden) renderVoiceModal();
+  },
 });
 
-// ── TTS 自檢 ──
+// ── TTS 自檢 + 選音色 ──
 const ttsBtn = document.getElementById('ttsBtn');
 const ttsStatus = document.getElementById('ttsStatus');
+const voxBackdrop = document.getElementById('voxBackdrop');
+const voxGB = document.getElementById('voxGB');
+const voxUS = document.getElementById('voxUS');
 
-function reportTTS() {
-  const s = speechStatus();
-  if (!s.supported) { ttsStatus.textContent = t('login.audioNone'); ttsBtn.classList.add('tts-bad'); return; }
-  if (!s.ready) { ttsStatus.textContent = t('login.audioLoading'); return; }
-  ttsStatus.textContent = s.enGB ? t('login.audioOk') : t('login.audioWarn');
-  ttsBtn.classList.add(s.enGB ? 'tts-ok' : 'tts-warn');
+const SAMPLE = 'My glasses are on the desk. Glasses.';
+
+/** 只用在把語音名字塞進 HTML（語音名字偶爾帶引號） */
+function escAttr(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+/** 更新 Test sound 下方那行小字：顯示目前用哪個音色 */
+function updateTtsLabel() {
+  const s = speechStatus();
+  if (!s.supported) { ttsStatus.textContent = t('login.audioNone'); return; }
+  if (!s.voiceName) { ttsStatus.textContent = t('login.audioPick'); return; }
+  const accent = String(s.voiceLang || '').toLowerCase() === 'en-gb' ? 'UK' : 'US';
+  ttsStatus.textContent = `${t('voice.using')} ${s.voiceName} · ${accent}`;
+  ttsBtn.classList.remove('tts-bad');
+  ttsBtn.classList.add('tts-ok');
+}
+
+function voiceRow(item, lang, slot, selectedName) {
+  const on = selectedName === item.name;
+  return `<button class="vox-row${on ? ' on' : ''}" type="button"
+            data-name="${escAttr(item.name)}" data-lang="${lang}" data-slot="${slot}">
+      <span class="vox-mark" aria-hidden="true">${on ? '✓' : '▶'}</span>
+      <span class="vox-nm">${escAttr(item.name)}</span>
+      <span class="vox-tag">${lang === 'en-GB' ? 'UK' : 'US'}</span>
+    </button>`;
+}
+
+/** 重畫兩組選項（每次開窗、每次選完都重畫，勾選狀態才準） */
+function renderVoiceModal() {
+  const pref = getVoicePref();
+  const ready = speechStatus().ready;
+  const groups = [
+    [voxGB, 'en-GB'],
+    [voxUS, 'en-US'],
+  ];
+  for (const [el, lang] of groups) {
+    const list = listVoiceChoices(lang, 3);
+    const note = list.length && list.length < 3
+      ? `<p class="vox-note">${escAttr(t('voice.few', { n: list.length }))}</p>`
+      : '';
+    el.innerHTML = (list.length
+      ? list.map((v, i) => voiceRow(v, lang, i, pref?.name)).join('')
+      : `<p class="vox-empty">${escAttr(t(ready ? 'voice.empty' : 'login.audioLoading'))}</p>`) + note;
+  }
+}
+
+function openVoiceModal() {
+  primeSpeech(); unlockAudio();
+  renderVoiceModal();
+  voxBackdrop.hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeVoiceModal() {
+  voxBackdrop.hidden = true;
+  document.body.style.overflow = '';
+  updateTtsLabel();
+}
+
+ttsBtn.addEventListener('click', openVoiceModal);
+document.getElementById('voxClose').addEventListener('click', closeVoiceModal);
+document.getElementById('voxDone').addEventListener('click', closeVoiceModal);
+
+voxBackdrop.addEventListener('click', (e) => {
+  if (e.target === voxBackdrop) { closeVoiceModal(); return; }
+  const row = e.target.closest('.vox-row');
+  if (!row) return;
+  const { name, lang } = row.dataset;
+  const slot = Number(row.dataset.slot) || 0;
+
+  primeSpeech(); unlockAudio();
+  setVoicePref({ name, lang, slot });     // ★ 存下來：Start 進課後全站都用它
+  renderVoiceModal();                     // 勾選狀態立刻更新
+  updateTtsLabel();
+  // 用「剛選的這個」唸一次（不受偏好影響，這樣才知道自己選到什麼聲音）
+  speakWithVoice(name, SAMPLE, { rate: 0.8 });
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !voxBackdrop.hidden) closeVoiceModal();
+});
 
 ['touchstart', 'click', 'keydown'].forEach(ev =>
   window.addEventListener(ev, () => { primeSpeech(); unlockAudio(); }, { once: true, passive: true }));
 
-ttsBtn.addEventListener('click', () => {
-  primeSpeech(); unlockAudio(); playTap();
-  speakSentence('I eat an apple every day.');
-  setTimeout(reportTTS, 400);
-});
+// 開頁時就把「目前用哪個音色」寫在 Test sound 下面
+setTimeout(() => {
+  updateTtsLabel();
+  const s = speechStatus();
+  if (s.supported && !s.ready) ttsStatus.textContent = t('login.audioLoading');
+}, 300);
 
-document.addEventListener('pcs:voices-ready', reportTTS);
-reportTTS();
+document.addEventListener('pcs:voices-ready', () => {
+  updateTtsLabel();
+  if (!voxBackdrop.hidden) renderVoiceModal();   // 語音清單晚到 → 重畫選項
+});
+updateTtsLabel();
 
 // ── 進入課程（Kahoot 式 PIN）──
 const form = document.getElementById('loginForm');

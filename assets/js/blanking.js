@@ -23,6 +23,59 @@ const isVowel = ch => VOWELS.has(ch);
 const isConsonant = ch => /[a-z]/.test(ch) && !VOWELS.has(ch);
 
 // ═════════════════════════════════════════════════════════════
+// ★ 2026-11-24 新增：VCe（magic e）的「元音位」偵測
+// ═════════════════════════════════════════════════════════════
+//
+// 為什麼需要它：
+//   舊版把 magic e 的難度全部記在**詞尾那個 e** 身上（權重 66），
+//   於是 ride / hope / cake / bike 幾乎每一個詞的第二關都在挖 e。
+//   老師的評語是「所有的結尾帶 e 的都會抠這個，很無聊」。
+//
+//   但教學上 magic e 的重點從來不是 e —— e 不發音、規則可靠、例外極少，
+//   學生看到 r_d_ 根本不用思考。真正的難點是**前面那個元音**：
+//   有 e 才讀長音（ride /aɪ/），沒有 e 就讀短音（rid /ɪ/）。
+//   所以難度應該記在元音身上，e 只留象徵性權重。
+//
+// 三道保險（缺一不可，否則 office / engine / have 會被誤判成 magic e）：
+//   ① 必須是 [元音][輔音]e 結尾 —— 排除 -le（table / apple，e 屬成音節 /l/）
+//   ② 元音組必須恰好 2 組 —— 排除 office / engine / police 這種多音節詞
+//      （它們只是「剛好以 [元音]ce 結尾」，不是 VCe 結構）
+//   ③ 例外表 —— have / give / come / some 等，拼法像 VCe 但元音读短音
+const MAGIC_E_EXCEPTIONS = new Set([
+  // 短元音（拼法像 VCe，但不發長音）
+  'have', 'give', 'live', 'love', 'glove', 'dove', 'shove', 'above',
+  'come', 'some', 'done', 'none', 'one', 'gone', 'done',
+  'move', 'prove', 'lose', 'whose', 'use', 'vase', 'are', 'were',
+  // e_e 這一支本身邊際（these / theme / complete），不給加成
+  'these', 'theme', 'complete', 'delete', 'athlete', 'concrete', 'extreme',
+]);
+
+/**
+ * 回傳 VCe 結構中「該加權的元音」下標；不是 VCe 就回 -1。
+ *
+ * @example magicEVowelIndex('ride')  → 1   ('i')
+ *          magicEVowelIndex('hope')  → 1   ('o')
+ *          magicEVowelIndex('apple') → -1  (-le，不是 VCe)
+ *          magicEVowelIndex('have')  → -1  (例外表)
+ *          magicEVowelIndex('office')→ -1  (三個元音組)
+ */
+function magicEVowelIndex(word) {
+  const w = String(word).toLowerCase();
+  if (w.length < 3) return -1;
+  if (!/[aeiou][^aeiou]e$/.test(w)) return -1;      // ① 且排除 -le
+  if (MAGIC_E_EXCEPTIONS.has(w)) return -1;          // ③
+
+  const groups = w.match(/[aeiou]+/g) || [];
+  if (groups.length !== 2) return -1;                // ② 多音節詞排除
+
+  const idx = w.length - 3;
+  // e_e（these / theme）不給加成 —— 這一支的「長音」不是靠 magic e 造出來的
+  if (w[idx] === 'e') return -1;
+  return idx;
+}
+
+
+// ═════════════════════════════════════════════════════════════
 // 步驟 1：掃描 — 找出單詞中所有可辨識的拼寫模式
 // ═════════════════════════════════════════════════════════════
 
@@ -247,21 +300,43 @@ export function singleLetterWeight(word, index) {
   const next = w[index + 1] ?? '';
   const atEnd = index === w.length - 1;
   const atStart = index === 0;
+  // ★ VCe 結構中「真正該挖的元音」下標（不是 VCe 就是 -1）
+  const vceVowel = magicEVowelIndex(w);
 
   let weight = 0;
   let kind = 'single';
   let note = '';
+  let category = 'single_letter';   // ★ 語音結構類別 → 進 exposure / 後台統計
+  let pattern = null;               // ★ 對應的 pattern 名（可和 spelling-patterns 對照）
 
   // ★ 詞尾靜音 e 必須在「是否元音」之前判斷，因為 e 本身就是元音字母。
-  //   兩種情形：(a) VCe 規則（cap→cape）；(b) -le 音節結尾（table, little, apple）。
-  //   apple 的 e 屬於 -le；table 的 e 屬於 -le，兩者都不可發音。
+  //
+  //   ★★ 2026-11-24 改：56 → 18（VCe）/ 8（-le）
+  //
+  //   舊版兩支都是 56，比單輔音（30）還高，於是任何 -e 結尾的詞都在挖 e。
+  //   老師原話：「几乎所有的结尾带 e 的都会有抠这个，我觉得很无聊」。
+  //   現在把難度移到前面的元音（下面 +18），e 只保留象徵性權重：
+  //     · VCe（ride / hope / cake）→ 18，遠低於單輔音 30
+  //     · -le（apple / table / little）→ 8，e 屬成音節 /l/，最不該挖
+  //
+  //   ★ 為什麼是 18/8 而不是 22/12：組裝時有「同類別降權 3 分」的多樣性
+  //     懲罰，單輔音會被壓到 27。若 e 定在 22~28，就會在「已經挖了一個輔音」
+  //     之後反過來贏過其他輔音 —— 實測會出現 d + e 這種沒意義的組合。
+  //     壓到 18 以下才真的「永遠排最後」。
   const isSilentE = atEnd && ch === 'e' && w.length >= 3
     && (/[aeiou][^aeiou]e$/.test(w)          // VCe：母音 + 輔音 + e
       || /[^aeiou]le$/.test(w));             // -le：輔音 + le
   if (isSilentE) {
     kind = '_e_silent';
-    weight = 56;
-    note = /le$/.test(w) ? '詞尾 -le，e 不發音' : '詞尾靜音 e（VCe 規則）';
+    category = 'magic_e';
+    pattern = '_e_silent';
+    if (/[^aeiou]le$/.test(w)) {
+      weight = 8;
+      note = '詞尾 -le，e 不發音（成音節 /l/）';
+    } else {
+      weight = 18;
+      note = '詞尾靜音 e（VCe 規則，e 本身不發音）';
+    }
   } else if (isVowel(ch)) {
     kind = 'single_vowel';
     // 閉音節的短母音比開音節的長母音更難猜
@@ -280,12 +355,31 @@ export function singleLetterWeight(word, index) {
       weight = 43 + positionPenalty;   // 複合母音中間的字母（如 teacher 的 a）
       note = `複合母音中的 ${ch.toUpperCase()}`;
     }
+
+    category = 'single_vowel';
+    pattern = ch;
+
+    // ★★ 2026-11-24：VCe 的元音加成 +18
+    //
+    //   ride 的 i：base 35（短母音 CVC 33 + 位置 2）→ 53，穩居第一
+    //   這就是「ride 應該挖 i，不該挖 e」的實現方式。
+    //   教學依據：有 e 才讀 /aɪ/、沒有 e 讀 /ɪ/，學生真正要想的是這個元音。
+    if (vceVowel === index) {
+      weight += 18;
+      category = 'magic_e';
+      pattern = `${ch}_e`;
+      note = `VCe 長母音 ${ch.toUpperCase()}（難在元音、不在詞尾 e）`;
+    }
   } else if (ch === 'y' && !atStart) {
     kind = 'y_vowel';
+    category = 'y_as_vowel';
+    pattern = 'y';
     weight = 62;
     note = 'y 當元音用（高頻錯誤）';
   } else {
     kind = 'single_consonant';
+    category = 'single_consonant';
+    pattern = ch;
     // 詞尾輔音略高於詞中（序位效應）。但極短詞（≤4 字母）只給 +6，
     // 且詞首不加分 —— 避免 'cat' 第一關挖 t、第二關又挖最可預測的詞首 c。
     const short = w.length <= 4 ? (atEnd ? 6 : 0) : (atEnd ? 8 : 0);
@@ -293,7 +387,7 @@ export function singleLetterWeight(word, index) {
     note = atEnd ? '詞尾輔音' : '單一輔音';
   }
 
-  return { index, char: ch, weight, kind, note };
+  return { index, char: ch, weight, kind, note, category, pattern };
 }
 
 /** 單詞中所有單一字母位置的權重排序（降序） */
@@ -305,109 +399,280 @@ export function rankSingleLetters(word) {
 }
 
 // ═════════════════════════════════════════════════════════════
-// 步驟 3：選取 — 權重表排好隊，從頭搜，最多 3 次，超過就 break
+// 步驟 3：選取 — 靶點池 + 逐關組裝（2026-11-24 重寫）
 // ═════════════════════════════════════════════════════════════
+//
+// 舊版是「一個 pattern 一關，按關號索引 levels[n-1]」，一關只有 1 個空
+// （`ss` / `ea` 佔 2 格但仍是「一個結構」）。老師的回饋：
+//   「這麼長的一個詞組，每次只摳 1 個字母，而且是一個 e，太無聊了」
+//   而且靜態關卡根本做不到「這次答對的字母，下次不再摳」。
+//
+// 新模型：
+//   collectWordTargets()  → 原子靶點池（pattern 靶點 + 單字母靶點）
+//   composeFromPool()     → 每次組裝一關，目標 2–3 個空，可吃 mastery 記憶
+//   levelCountFromPool()  → 關數（只依靶點池，所以一局內穩定）
+
+/** 每關目標空數：短詞 2、長詞（≥7 字母）3 */
+export function quotaFor(text) {
+  return String(text ?? '').replace(/\s+/g, ' ').trim().length >= 7 ? 3 : 2;
+}
 
 /**
- * 建立一個單詞的所有挖空關卡。
+ * 一個詞的原子靶點池（詞內座標 + 短語偏移）。
  *
- * 規則（依使用者指定）：
- *   - L1 挖掉整個最高權重的 pattern（例：apple 的 pp → `a _ _ le`）
- *   - 依權重降序，一關一個 pattern，**最多 3 關，超過就 break**
- *   - 若只有 1 個 pattern → L1 挖它，L2 用單一字母退讓補
- *   - 沒有 pattern 的短詞 → 只挖 1 關
+ * 規則：
+ *   · 每個 scanPatterns() 命中的 pattern = 一個靶點（可跨 2–3 格）
+ *   · 沒被任何 pattern 覆蓋的字母 = 一個單字母靶點
+ *   · 每個字母最多屬於一個靶點（pattern 優先 —— 否則 ride 的 e 會
+ *     既算 `_e_silent` 又算單字母，同一個字母被挖兩次）
  *
- * @param {string} word  目標詞（小寫）
- * @param {object} opts  { maxLevels=3 }
- * @returns {Array<Level>}
+ * @param {string} word
+ * @param {number} wordIndex  在短語中是第幾個「可挖詞」（單詞 = 0）
+ * @param {number} offset     該詞在整組 targetWord 裡的起始位置（含詞間空格）
  */
-export function buildLevels(word, opts = {}) {
-  const { maxLevels = 3 } = opts;
+export function collectWordTargets(word, wordIndex = 0, offset = 0) {
   const w = String(word).toLowerCase();
   if (!w || !/^[a-z]+$/.test(w)) return [];
 
-  // scanPatterns 本身已按權重降序 —— 直接從頭取，最多 3 個，超過即止
-  const patterns = scanPatterns(w);
-  const targets = [];
+  const out = [];
+  const covered = new Set();
 
-  for (const p of patterns) {
-    if (targets.length >= maxLevels) break;      // ← 最多 3 次，超過 break
-    targets.push({
+  for (const p of scanPatterns(w)) {
+    const idxs = rangeOf(p.start, p.end);
+    out.push({
+      key: `${wordIndex}:${p.start}-${p.end}`,
       kind: 'pattern',
       pattern: p.pattern,
       category: p.category,
       note: p.note,
       weight: p.weight,
-      // ★ 整個 pattern 一次挖掉，字母之間留空格
-      blanks: rangeOf(p.start, p.end),
+      blanks: idxs.map(i => offset + i),
       span: { start: p.start, end: p.end, text: p.text },
+      wordIndex,
+      localStart: p.start,
       ipa: p.ipa,
       ambiguity: p.ambiguity,
       reliability: p.reliability,
     });
+    idxs.forEach(i => covered.add(i));
   }
 
-  // ── 退讓 1：不足 2 關 → 用單一字母補 ──
-  if (targets.length < 2) {
-    const used = new Set(targets.flatMap(t => t.blanks));
-    const singles = rankSingleLetters(w)
-      .filter(s => !used.has(s.index))
-      .slice(0, 2 - targets.length);
+  for (let i = 0; i < w.length; i++) {
+    if (covered.has(i)) continue;
+    const s = singleLetterWeight(w, i);
+    out.push({
+      key: `${wordIndex}:${i}-${i + 1}`,
+      kind: s.kind,
+      pattern: s.pattern ?? s.char,
+      category: s.category ?? s.kind,
+      note: s.note,
+      weight: s.weight,
+      blanks: [offset + i],
+      span: { start: i, end: i + 1, text: s.char },
+      wordIndex,
+      localStart: i,
+      ipa: null,
+      ambiguity: 0,
+      reliability: 'high',
+    });
+  }
 
-    for (const s of singles) {
-      targets.push({
-        kind: s.kind,
-        pattern: s.char,
-        category: s.kind,
-        note: s.note,
-        weight: s.weight,
-        blanks: [s.index],
-        span: { start: s.index, end: s.index + 1, text: s.char },
-        ipa: null,
-        ambiguity: 0,
-        reliability: 'high',
-      });
+  return out.sort((a, b) => b.weight - a.weight || a.localStart - b.localStart);
+}
+
+/** mastery 對權重的影響（本局內「答對過 / 答錯過」） */
+const MASTERY_PASS_FACTOR = 0.12;   // 答對 → 幾乎不再選（但不歸零，留兜底）
+const MASTERY_FAIL_BONUS = 12;      // 答錯 → 下一關優先再挖它
+const SAME_WORD_PENALTY = 6;        // 同一關已經有這個詞的靶點 → 降權
+const SAME_CATEGORY_PENALTY = 3;    // 同一關已經有同類結構 → 降權（求多樣）
+
+/**
+ * 從靶點池組裝一關。
+ *
+ * @param {Array} pool    collectWordTargets 的輸出（可合併多個詞）
+ * @param {object} opts
+ *   quota       {number}  目標空數（2 或 3）—— 按「格子數」算
+ *   targets     {number}  這一關最多挖幾個**結構/靶點**（Easy 模式用，見下）
+ *   mastery     {Map}     targetKey → 'pass' | 'fail'（本局記憶，可省略）
+ *   exclude     {Set}     要跳過的 targetKey（靜態預覽用；做「關與關不重複」）
+ *   mustInclude {string[]} 一定要被挖的 targetKey（重測用，見下）
+ * @returns {Array} 被選中的靶點，按選取順序
+ */
+export function composeFromPool(pool, opts = {}) {
+  const { quota = 2, mastery = null, exclude = null, mustInclude = null, targets = null } = opts;
+
+  // ★ 2026-11-24（r68）：Easy 模式「每關只挖一個結構」。
+  //
+  //   ★ 注意是「一個結構」不是「一個字母」—— `oo` 跨 2 格、`tch` 跨 3 格，
+  //     但它們都是**一個** pattern，算一個空。
+  //   所以不能把 quota 設成 1（quota 按格子數截斷，`oo` 會直接被排除），
+  //   要按**靶點個數**限量：targets=1 → 只挑分數最高的那一個結構，
+  //   它跨幾格就幾格。
+  const byTargets = Number.isFinite(targets) && targets > 0;
+  const maxTargets = byTargets ? targets : Infinity;
+
+  // 短語時限制「同一個詞最多 2 個靶點」，避免整關都挖同一個詞；
+  // 單詞時沒有這個限制（否則 quota 3 永遠填不滿）。
+  const multiWord = new Set(pool.map(t => t.wordIndex)).size > 1;
+  const maxPerWord = multiWord ? 2 : Math.max(2, quota);
+
+  const picked = [];
+  const used = new Set();
+  const perWord = new Map();
+  const perCat = new Map();
+
+  const scoreOf = (t) => {
+    let s = t.weight;
+    const m = mastery?.get?.(t.key);
+    if (m === 'pass') s *= MASTERY_PASS_FACTOR;
+    else if (m === 'fail') s += MASTERY_FAIL_BONUS;
+    s -= (perWord.get(t.wordIndex) ?? 0) * SAME_WORD_PENALTY;
+    s -= (perCat.get(t.category) ?? 0) * SAME_CATEGORY_PENALTY;
+    return s;
+  };
+
+  const take = (t) => {
+    picked.push(t);
+    t.blanks.forEach(i => used.add(i));
+    perWord.set(t.wordIndex, (perWord.get(t.wordIndex) ?? 0) + 1);
+    perCat.set(t.category, (perCat.get(t.category) ?? 0) + 1);
+  };
+
+  // ★★★ 2026-11-24（r67）：先放入「必須重測」的靶點。
+  //
+  //   重測時，上一次答錯的那個靶點一定要是空格，否則：
+  //     · 學生看不到自己錯在哪裡，重測等於白做；
+  //     · submit() 不會為那一格產生 probe → recordAnswer 刪不掉佇列項
+  //       → 佇列永遠不空 → 這一局結束不了。
+  //
+  //   但**其餘名額照常重新組裝**，不是把上一次那一組原樣搬過來 ——
+  //   那才是老師抱怨的「oo 明明寫對了，為什麼又挖一次」。
+  //   答對過的靶點已被 mastery 壓到 0.12 倍，補進來的通常是
+  //   這個詞裡還沒考過的另一個結構（例如換成 ride 的 i）。
+  for (const key of mustInclude ?? []) {
+    if (exclude?.has?.(key)) continue;
+    const t = pool.find(x => x.key === key);
+    if (!t) continue;
+    if (t.blanks.some(i => used.has(i))) continue;
+    take(t);
+  }
+
+  for (let guard = 0; guard < 24; guard++) {
+    if (picked.length >= maxTargets) break;
+    const slots = picked.reduce((n, t) => n + t.blanks.length, 0);
+    // 按結構限量時（Easy）不看格子數，只看「已經挖了幾個結構」
+    if (!byTargets && slots >= quota) break;
+
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (const t of pool) {
+      if (exclude?.has?.(t.key)) continue;
+      if (t.blanks.some(i => used.has(i))) continue;
+      if ((perWord.get(t.wordIndex) ?? 0) >= maxPerWord) continue;
+      // 已經選了東西 → 不准超過 quota+1（pattern 不能切半，留 1 格餘裕）
+      if (!byTargets && slots > 0 && slots + t.blanks.length > quota + 1) continue;
+
+      const sc = scoreOf(t);
+      // 同分時「靠右優先」：詞首輔音最可預測，不該優先挖（序位效應）
+      const tie = sc === bestScore && best && t.localStart > best.localStart;
+      if (sc > bestScore || tie) { bestScore = sc; best = t; }
     }
+
+    if (!best) break;
+    take(best);
   }
 
-  // ── 退讓 2：完全找不到任何 pattern 的極短詞 → 只挖 1 關 ──
-  if (targets.length === 0) {
-    const s = rankSingleLetters(w)[0];
-    if (s) {
-      targets.push({
-        kind: s.kind,
-        pattern: s.char,
-        category: s.kind,
-        note: s.note,
-        weight: s.weight,
-        blanks: [s.index],
-        span: { start: s.index, end: s.index + 1, text: s.char },
-        ipa: null,
-        ambiguity: 0,
-        reliability: 'high',
-      });
-    }
-  }
+  return picked;
+}
 
-  return targets.map((t, i) => ({
-    level: i + 1,
-    word: w,
-    length: w.length,
-    blanks: t.blanks,
-    blankCount: t.blanks.length,
-    display: renderCloze(w, t.blanks),
-    target: {
-      kind: t.kind,
-      pattern: t.pattern,
-      category: t.category,
-      note: t.note,
-      weight: t.weight,
-      span: t.span,
-      ipa: t.ipa,
-      ambiguity: t.ambiguity,
-      reliability: t.reliability,
-    },
-  }));
+/**
+ * 一個詞/詞組能拆成幾關。
+ *
+ * 用「可挖字母總數 B」而不是「靶點個數」：teacher 只有 3 個 pattern
+ * 但佔 6 格，按個數會只給 1 關（6 空一次挖完），按格數給 2 關更合理。
+ * 餘量不足 2 就不多加一關，避免出現「最後一關只有 1 個空」。
+ */
+export function levelCountFromPool(blankTotal, quota, maxLevels = 3) {
+  if (blankTotal <= 0) return 0;
+  let n = Math.floor(blankTotal / quota);
+  if (n < 1) n = 1;
+  if (n < maxLevels && blankTotal - n * quota >= 2) n += 1;
+  return Math.max(1, Math.min(maxLevels, n));
+}
+
+/** 把靶點轉成舊版 `level.target` 的形狀（後台/分析/診斷都吃這個） */
+export function legacyTarget(t) {
+  return {
+    kind: t.kind,
+    pattern: t.pattern,
+    category: t.category,
+    note: t.note ?? '',
+    weight: t.weight,
+    span: t.span ?? null,
+    ipa: t.ipa ?? null,
+    ambiguity: t.ambiguity ?? 0,
+    reliability: t.reliability ?? 'high',
+  };
+}
+
+/**
+ * 把選中的靶點包成一個 level 物件。
+ * 舊欄位（word / blanks / display / target）一律保留，play.html 與 admin 不用改。
+ */
+export function levelFromTargets(targets, opts = {}) {
+  const { level = 1, word = '', length = 0, display = '', extra = {} } = opts;
+  const blanks = [...new Set(targets.flatMap(t => t.blanks))].sort((a, b) => a - b);
+  const primary = targets.reduce((m, t) => (!m || t.weight > m.weight ? t : m), null);
+
+  return {
+    level,
+    word,
+    length,
+    blanks,
+    blankCount: blanks.length,
+    display: display || (word ? renderCloze(word, blanks) : ''),
+    targets,
+    target: primary ? legacyTarget(primary) : null,
+    ...extra,
+  };
+}
+
+/**
+ * 建立一個單詞的所有挖空關卡（靜態預覽用）。
+ *
+ * ★ 真正出題時 play.html 不呼叫這支 —— 它用 composeFromPool + mastery
+ *   動態組裝（見 play.html 的 render()）。這裡給的是「完全沒記憶」的版本，
+ *   供後台預覽、admin.html 的扣空顯示、以及測試使用。
+ *
+ * 規則：
+ *   · 每關 2 個空，詞長 ≥7 給 3 個
+ *   · 關與關之間不重複用同一個靶點
+ *   · 最多 3 關（PCS_CONFIG.experiment.maxLevels）
+ */
+export function buildLevels(word, opts = {}) {
+  const { maxLevels = 3, mastery = null } = opts;
+  const w = String(word).toLowerCase();
+  if (!w || !/^[a-z]+$/.test(w)) return [];
+
+  const pool = collectWordTargets(w, 0, 0);
+  if (!pool.length) return [];
+
+  const total = pool.reduce((n, t) => n + t.blanks.length, 0);
+  const quota = quotaFor(w);
+  const count = levelCountFromPool(total, quota, maxLevels);
+  const exclude = new Set();
+
+  return Array.from({ length: count }, (_, i) => {
+    const picked = composeFromPool(pool, { quota, mastery, exclude });
+    picked.forEach(t => exclude.add(t.key));
+    return levelFromTargets(picked, {
+      level: i + 1,
+      word: w,
+      length: w.length,
+      display: renderCloze(w, picked.flatMap(t => t.blanks)),
+    });
+  });
 }
 
 /**

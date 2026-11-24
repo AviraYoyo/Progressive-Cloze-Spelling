@@ -24,8 +24,8 @@
  *     提前之後，shop→🛍️、computer→💻、tiger→🐯、milk→🥛 才對得上。
  */
 
-import { phraseInfo } from '../data/phrases.js?v=2026-11-20-r56';
-import { categoryFor } from '../data/sentences.js?v=2026-11-20-r56';
+import { phraseInfo } from '../data/phrases.js?v=2026-11-24-r71';
+import { categoryFor } from '../data/sentences.js?v=2026-11-24-r71';
 
 /** 類別 → emoji（與學生端原本的對照表一致） */
 export const CATEGORY_EMOJI = {

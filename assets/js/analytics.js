@@ -478,8 +478,18 @@ export function exportCsv(data) {
         word: e.word,
         sentence: e.sentence,
         level: e.level,
+        // ★ 2026-11-24：一關可能挖 2–3 個不同結構。
+        //   targetPattern/Category 仍是「主靶點」（權重最高那個，向後兼容），
+        //   patternOfProbe/categoryOfProbe 才是「這一格自己所屬的結構」。
         targetPattern: e.targetPattern,
         targetCategory: e.targetCategory,
+        patternOfProbe: p.targetKey
+          ? (e.targets ?? []).find(t => t.key === p.targetKey)?.pattern ?? e.targetPattern
+          : e.targetPattern,
+        categoryOfProbe: p.phonClass ?? e.targetCategory,
+        targetKey: p.targetKey ?? '',
+        blankCount: e.blankCount ?? (e.blanks?.length ?? ''),
+        targetCount: e.targetCount ?? (e.targets?.length ?? ''),
         probeIndex: p.i + 1,          // 1-based，論文用的序位
         expected: p.expect,
         got: p.got,

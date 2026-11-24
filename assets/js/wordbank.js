@@ -13,10 +13,10 @@ import { sentencesFor, categoryFor, BANK_WORDS } from '../data/sentences.js';
 import { PHRASE_KEYS, phraseInfo } from '../data/phrases.js';
 import { analyseWord, analyseWordForm } from './blanking.js';
 import { shuffle } from './scheduler.js';
-import { analyseItem, buildItemInline } from './phrase.js';
+import { analyseItem, buildItemInline, composeLevel, levelCountFor } from './phrase.js';
 
 // 重新導出，讓呼叫端只需 import wordbank.js 一個模組
-export { shuffle, analyseItem, buildItemInline };
+export { shuffle, analyseItem, buildItemInline, composeLevel, levelCountFor };
 
 /** 內建詞庫：從 sentences.js 的鍵自動生成 */
 export function localWordBank() {
@@ -76,18 +76,29 @@ export function pickWords(bank, n = 15, seed = '2026a', opts = {}) {
   if (pool.length <= n) return pool;
 
   // 依「最高權重 pattern」分組，每組先取一個，再補剩下的
+  //
+  // ★ 2026-11-24：一關現在會挖 2–3 個靶點，分桶改成取「本關所有靶點的 pattern」，
+  //   同一組詞只要共用任一個結構就算同桶 —— 否則兩個詞可能因為主靶點不同
+  //   而被分到不同桶，實際上卻還在練同一個結構。
+  const bucketKeyOf = (a) => {
+    const lv = a.levels?.[0];
+    const pats = (lv?.targets?.length ? lv.targets : (lv?.target ? [lv.target] : []))
+      .map(t => t.pattern).filter(Boolean);
+    return pats.length ? pats.sort().join('+') : '_none';
+  };
+
   const buckets = new Map();
   for (const w of pool) {
     const a = analyseItem(w.word);          // ★ 用 analyseItem 支援短語
-    const key = a.levels[0]?.target.pattern ?? '_none';
+    const key = bucketKeyOf(a);
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(w);
   }
 
   // 依權重降序 → 高權重結構的詞優先入選
   const groups = [...buckets.values()].sort((a, b) => {
-    const pa = analyseItem(a[0].word).levels[0]?.target.weight ?? 0;
-    const pb = analyseItem(b[0].word).levels[0]?.target.weight ?? 0;
+    const pa = analyseItem(a[0].word).levels[0]?.target?.weight ?? 0;
+    const pb = analyseItem(b[0].word).levels[0]?.target?.weight ?? 0;
     return pb - pa;
   });
 

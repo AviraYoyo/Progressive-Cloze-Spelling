@@ -21,7 +21,7 @@ export const FIREBASE_VERSION = '12.19.0';
  *
  * ★ 改任何程式碼之後，**務必把這裡的數字 +1**，否則使用者不會拿到新檔案。
  */
-export const BUILD_ID = '2026-11-20-r56';
+export const BUILD_ID = '2026-11-24-r71';
 
 // ── Firebase 設定 ──
 // ★ storageBucket 雖然填了，但我們**不使用 Cloud Storage**
@@ -57,7 +57,11 @@ export const PCS_CONFIG = {
   ui: {
     sound: true,
     speech: true,
-    lang: 'en-GB',             // 英式發音（對齊 BrE 拼寫）
+    /* ★ 2026-11-20：en-GB → en-US。
+       老師決定用「好听的美式女聲」，而且要是小孩设备出厂就有的那种：
+       Apple 的 Samantha、Windows 的 Zira 都是系统自带（不用下载）。
+       注意：这只影响「发音口音」，不影响拼写标准（仍是 BrE 拼法）。 */
+    lang: 'en-US',
     speechRate: 0.78,          // 小學生跟讀，語速放慢（2026-11-20：0.85 → 0.78）
   },
 
@@ -100,7 +104,7 @@ export const STORAGE_PREFIX = 'pcs.';
  *   「修好了但還是一樣」都是這個原因，不是程式邏輯問題。
  *
  * 用法：放在每個 HTML 的 <head>，第一個 inline <script>：
- *   if (window.__pcsCheckBuild) window.__pcsCheckBuild('2026-11-20-r56');
+ *   if (window.__pcsCheckBuild) window.__pcsCheckBuild('2026-11-24-r71');
  *
  * 行為：版本不一致 → 記錄新版本 → 強制重整（繞過 bfcache）。
  *   已一致 → 什麼都不做，不影響正常瀏覽。

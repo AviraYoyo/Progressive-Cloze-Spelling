@@ -32,6 +32,7 @@ function localDateKey(d = new Date()) {
  * @param {string} o.targetPattern被挖的 pattern
  * @param {string} o.targetCategory
  * @param {number} o.targetWeight
+ * @param {Array}  o.targets     本關所有靶點 [{key,pattern,category,weight,kind,blanks}]
  * @param {number[]} o.blanks     挖空位置（0-based）
  * @param {Array}  o.probes       [{i, expect, got, correct, ms, attemptNo, phonClass, errorCode}]
  * @param {number} o.durationMs   整題用時
@@ -46,9 +47,33 @@ export function recordExposure(o) {
     targetPattern, targetCategory, targetWeight,
     blanks, probes, durationMs, exposureIndex,
     isRetry, mode = 'progressive', skipped = false,
+    targets = null,
   } = o;
 
   const now = Date.now();
+
+  // ★ 2026-11-24：一關可能挖 2–3 個不同的語音結構（例：y_as_vowel + magic_e）。
+  //   舊 schema 只有單一 targetPattern/targetCategory，多空時會被壓成一個 →
+  //   「哪個結構最難」這個核心研究指標就失真了。
+  //   現在 targets 逐個記錄，同時把「主靶點」（權重最高那個）填回舊欄位，
+  //   舊的查詢與 CSV 不用改。
+  const targetList = (Array.isArray(targets) ? targets : [])
+    .filter(Boolean)
+    .map(t => ({
+      key: t.key ?? null,
+      pattern: t.pattern ?? null,
+      category: t.category ?? null,
+      weight: t.weight ?? null,
+      kind: t.kind ?? null,
+      blanks: Array.isArray(t.blanks) ? t.blanks : [],
+    }));
+
+  const primary = targetList.reduce(
+    (m, t) => (!m || (t.weight ?? 0) > (m.weight ?? 0) ? t : m), null);
+
+  const pat = targetPattern ?? primary?.pattern ?? null;
+  const cat = targetCategory ?? primary?.category ?? null;
+  const wei = targetWeight ?? primary?.weight ?? null;
 
   // ★ 冪等鍵：同一 session 同一詞同一 exposureIndex 只會產生一份 document。
   //   離線重試時覆寫同一份，永不產生重複紀錄。
@@ -85,7 +110,9 @@ export function recordExposure(o) {
   return {
     // ── 追蹤 ──
     exposureId,
-    schemaVersion: 1,
+    // ★ 1 → 2（2026-11-24）：新增 targets 数组 + 逐 probe 的 targetKey/phonClass。
+    //   分析時可以按版本分層，避免新舊口徑混在同一張圖。
+    schemaVersion: 2,
     sessionId: student.sessionId || null,
     studentName: student.studentName || null,
     classNo: student.classNo || null,   // ★ 欄位名跟著 UI：Seat No. → Class No.
@@ -105,15 +132,24 @@ export function recordExposure(o) {
 
     // ── 題目 ──
     mode,
+    // ★ r68：這一題出自哪個難度（easy / difficult）。
+    //   分析時必須分層 —— Easy 每題只有一個結構、每詞只兩遍，
+    //   和 Difficult 的資料混在一起算「平均每關錯誤率」會失真。
+    difficulty: o.difficulty === 'easy' ? 'easy' : 'difficult',
     wordId,
     word,                    // ★ 被挖的目標詞（短語時是 office，不是 a post office）
     phrase: o.phrase ?? null, // ★ 完整短語（單詞時為 null）
     isPhrase: !!o.isPhrase,
     sentence,
     level,
-    targetPattern: targetPattern ?? null,
-    targetCategory: targetCategory ?? null,
-    targetWeight: targetWeight ?? null,
+    // ── 主靶點（權重最高那個）—— 舊欄位，維持向後兼容 ──
+    targetPattern: pat,
+    targetCategory: cat,
+    targetWeight: wei,
+    // ★ 本關所有靶點（2026-11-24）。一關 2–3 個空，可能分屬不同語音結構；
+    //   probes[].phonClass 會逐格對到自己所屬的靶點類別。
+    targets: targetList,
+    targetCount: targetList.length,
     blanks,
     blankCount: blanks.length,
     exposureIndex: exposureIndex ?? 0,

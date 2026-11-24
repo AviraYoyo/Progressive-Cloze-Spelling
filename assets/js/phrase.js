@@ -15,10 +15,54 @@
  * 冠詞 a/an 是已掌握的結構，只顯示不挖空。
  */
 
-import { analyseWord } from './blanking.js';
+import { analyseWord, collectWordTargets, composeFromPool, levelCountFromPool, levelFromTargets, quotaFor, renderCloze } from './blanking.js';
 
 /** 冠詞：不列入挖空測驗 */
 const ARTICLES = new Set(['a', 'an', 'the']);
+
+// ═════════════════════════════════════════════════════════════
+// ★ 2026-11-24：虛詞（function words）—— 只顯示、永不挖空
+// ═════════════════════════════════════════════════════════════
+//
+// 起因：老師回報「ride a bicycle 它會專門給我抠這個 a，完全沒必要」。
+//
+// 舊版只把**第一個詞**當冠詞剝掉（見 parsePhrase），所以短語中間的 a / of /
+// in 全被當成「內容詞」，各自產生靶點。`a` 只是個單字母母音，權重 37，
+// 照樣能佔掉一關 —— 學生就被要求填 a，完全不測任何拼寫知識。
+//
+// 現在：任意位置的虛詞都不產生靶點，但仍然**出現在題面上**
+// （"ride a bicycle" 完整顯示，只有不是虛詞的字母才可能被挖）。
+//
+// 詞表分五組，方便老師日後增刪。原則：
+//   · 只收「語法膠水」——不會是單元詞彙表裡的拼寫目標
+//   · 不收 have / has / do —— 它們在這套詞表裡是**實義動詞**
+//     （have a picnic / do homework），而且 have 的靜音 e 有教學價值
+const PREPOSITIONS = new Set([
+  'of', 'in', 'on', 'at', 'to', 'for', 'with', 'from', 'by', 'about',
+  'into', 'onto', 'over', 'under', 'up', 'down', 'near', 'after', 'before',
+  'between', 'behind', 'beside', 'around', 'along', 'across', 'through',
+  'without', 'during', 'than',
+]);
+
+const CONJUNCTIONS = new Set([
+  'and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'then',
+]);
+
+const DETERMINERS = new Set([
+  'my', 'your', 'his', 'her', 'its', 'our', 'their',
+  'this', 'that', 'these', 'those',
+  'some', 'any', 'every', 'each', 'all', 'both',
+]);
+
+const AUXILIARIES = new Set([
+  'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+  'can', 'could', 'will', 'would', 'shall', 'should',
+  'may', 'might', 'must',
+]);
+
+const FUNCTION_WORDS = new Set([
+  ...ARTICLES, ...PREPOSITIONS, ...CONJUNCTIONS, ...DETERMINERS, ...AUXILIARIES,
+]);
 
 /**
  * 短語拆解。
@@ -41,15 +85,34 @@ export function parsePhrase(phrase) {
     contentWords = parts.slice(1);
   }
 
-  // 中心語 = 最後一個詞（英文名詞短語的預設規則：dog house → house）
-  const headWord = contentWords[contentWords.length - 1] ?? '';
+  // ★ 2026-11-24：targetable 與 contentWords 一一對應。
+  //   false = 虛詞（含中間的 a / of / in），只顯示、不產生靶點。
+  const targetable = contentWords.map(w => !FUNCTION_WORDS.has(w));
+
+  // 兜底：整條短語都是虛詞（例如課程裡就寫了 "in the"）→
+  //   強制最後一個內容詞可挖，否則靶點池為空，play.html 會把這個詞
+  //   當成「無法出題」跳過，學生永遠練不到。
+  if (!targetable.some(Boolean) && contentWords.length) {
+    targetable[targetable.length - 1] = true;
+  }
+
+  // 中心語 = 最後一個「可挖」的詞（不再是單純最後一個詞）
+  let headIndex = -1;
+  for (let i = targetable.length - 1; i >= 0; i--) {
+    if (targetable[i]) { headIndex = i; break; }
+  }
+  const headWord = headIndex >= 0
+    ? contentWords[headIndex]
+    : (contentWords[contentWords.length - 1] ?? '');
 
   return {
     phrase: raw,
     article,
     contentWords,
+    targetable,
+    targetWords: contentWords.filter((_, i) => targetable[i]),
     headWord,
-    headIndex: parts.indexOf(headWord),
+    headIndex,
     isPhrase: contentWords.length > 1,
   };
 }
@@ -131,14 +194,20 @@ export function buildPhraseLevels(phrase, opts = {}) {
 }
 
 /**
- * ★ 多詞短語的 progressive 關卡（v3）。
+ * ★ 多詞短語的 progressive 關卡（v4，2026-11-24）。
  *
- * 每個內容詞挑一個「該詞最難的 pattern」當一關，同一詞不重複出關；
- * 關卡用該 pattern 的權重排序（越難越先練），權重相同時依詞序（由左至右）。
+ * v3 的做法是「每個內容詞只取它自己最高權重的那一關」→ 一個 3 詞短語最多
+ * 3 關、每關 1 個空。老師的回饋是「這麼長的詞組，每次只摳一個字母，
+ * 而且是一個 e，難度明顯過低」。
  *
- * 回傳的 level 有兩個關鍵欄位：
- *   targetWord —— 整個短語的內容詞（'post office'），**框橫跨整組**
- *   blanks     —— 只含被挖的那個詞的 pattern 字母（換算成整組的全域位置）
+ * v4：
+ *   · 把**所有可挖詞**的靶點併成一個池（虛詞不參與）
+ *   · 每關組裝 2–3 個空，可以跨詞（ride 的 i + bicycle 的 y 同時挖）
+ *   · 關與關之間不重複靶點（靜態版）；出題時的動態版改用 mastery 記憶
+ *
+ * 回傳的 level 有兩個關鍵欄位（與 v3 一致，play.html 不用改）：
+ *   targetWord —— 整個短語的內容詞（'ride a bicycle'），**框橫跨整組**
+ *   blanks     —— 整組的全域位置（含詞間空格）
  *
  * 其餘字母在 play.html 會以 .slot-given 顯示，學生看到的是
  * 「一整組詞，其中幾個字母要填」，不是「整組都要自己拼」。
@@ -147,50 +216,201 @@ function buildGroupedPhraseLevels(p, maxLevels = 3) {
   const content = p.contentWords.join(' ');
   if (!content) return [];
 
-  // 每個內容詞在 targetWord（含詞間空格）裡的起始位置
+  const pool = collectPhrasePool(p);
+  if (!pool.length) return [];
+
+  const total = pool.reduce((n, t) => n + t.blanks.length, 0);
+  const quota = quotaFor(content);
+  const count = levelCountFromPool(total, quota, maxLevels);
+  const words = p.contentWords.map(w => [...w].map((_, k) => k));
+
+  const exclude = new Set();
+  return Array.from({ length: count }, (_, i) => {
+    const picked = composeFromPool(pool, { quota, exclude });
+    picked.forEach(t => exclude.add(t.key));
+    return phraseLevelFrom(p, picked, i + 1);
+  });
+}
+
+/**
+ * 短語的靶點池：逐「可挖詞」收集，位置換算成整組全域座標。
+ * 虛詞（targetable=false）直接跳過 —— 這正是「不挖 a」的實現點。
+ */
+export function collectPhrasePool(p) {
+  const pool = [];
   const starts = [];
   let pos = 0;
   p.contentWords.forEach((w) => { starts.push(pos); pos += w.length + 1; });
 
-  // 逐詞只取「最高權重」的那一關 → 同一詞不會重複挖
-  const perWord = [];
   p.contentWords.forEach((w, wi) => {
-    const a = analyseWord(w);
-    const levels = Array.isArray(a?.levels) ? a.levels.filter(l => l?.blanks?.length) : [];
-    if (!levels.length) return;
-    const best = levels.reduce((m, l) =>
-      ((l.target?.weight ?? 0) > (m.target?.weight ?? 0) ? l : m), levels[0]);
-    perWord.push({ wi, word: w, best });
+    if (!p.targetable[wi]) return;
+    pool.push(...collectWordTargets(w, wi, starts[wi]));
   });
+  return pool;
+}
 
-  if (!perWord.length) return [];
+/** 把選中的靶點包成短語 level（供 buildGroupedPhraseLevels 與 composeLevel 共用） */
+function phraseLevelFrom(p, picked, levelNo) {
+  const content = p.contentWords.join(' ');
+  const blanks = [...new Set(picked.flatMap(t => t.blanks))].sort((a, b) => a - b);
+  const words = p.contentWords.map(w => [...w].map((_, k) => k));
 
-  // 越難的先練（pattern 權重降序），同權重時由左至右（閱讀順序）
-  perWord.sort((x, y) =>
-    (y.best.target?.weight ?? 0) - (x.best.target?.weight ?? 0) || x.wi - y.wi);
-
-  const words = p.contentWords.map(w => [...w].map((_, k) => k));   // 逐詞的「詞內」序號
-
-  return perWord.slice(0, Math.max(1, maxLevels)).map((entry, i) => {
-    const offset = starts[entry.wi];
-    return {
-      level: i + 1,
-      // ★ 全域位置（對齊 targetWord，含詞間空格）
-      blanks: entry.best.blanks.map(k => offset + k),
-      // 顯示字串（沿用既有的短語挖空渲染，後台預覽用）
-      display: renderPhraseCloze(p, entry.word, entry.wi, entry.best.blanks),
-      targetWord: content,          // ★ 整組呈現（不含冠詞）
-      words,                        // ★ 給 inline 畫詞間分隔
-      drilledWord: entry.word,      // 這一關在練哪個詞（研究資料用）
-      contentIndex: entry.wi,
-      target: entry.best.target,    // pattern / category / weight
+  return levelFromTargets(picked, {
+    level: levelNo,
+    word: p.phrase,
+    length: content.length,
+    display: renderPhraseClozeMulti(p, blanks),
+    extra: {
+      targetWord: content,
+      words,
+      targetable: p.targetable,
+      drilledWord: p.contentWords[picked[0]?.wordIndex] ?? p.headWord,
+      contentIndex: picked[0]?.wordIndex ?? 0,
       article: p.article,
       isPhrase: true,
-      grouped: true,                // ★ 走 buildAdvancedInline（逐詞渲染、全域位置）
+      grouped: true,        // ★ 走 buildAdvancedInline（逐詞渲染、全域位置）
       phrase: p.phrase,
-      word: p.phrase,
-    };
+    },
   });
+}
+
+/**
+ * 把「必須重測」的條件（靶點 key 或某幾個字母位置）解析成 pool 裡的靶點 key。
+ *
+ * 兩種來源都接受，是因為舊存檔的佇列項只有 probeIndex、沒有 targetKey：
+ *   · mustInclude        新的佇列項直接記了靶點 key（最準）
+ *   · mustIncludeProbes  舊的佇列項只能反查「哪個靶點包含這一格」
+ */
+function resolveMustKeys(pool, mustInclude, mustIncludeProbes) {
+  const out = new Set();
+  const known = new Set(pool.map(t => t.key));
+  for (const k of mustInclude ?? []) {
+    if (k && known.has(k)) out.add(k);
+  }
+  for (const i of mustIncludeProbes ?? []) {
+    if (i == null) continue;
+    for (const t of pool) {
+      if (t.blanks.includes(i)) out.add(t.key);
+    }
+  }
+  return [...out];
+}
+
+/**
+ * ★ 動態組裝一關（play.html 實際出題用）。
+ *
+ * 和 buildLevels 的分工：
+ *   · buildLevels / analysis.levels  → 靜態預覽（後台、測試、扣空顯示）
+ *   · composeLevel                   → 出題時即時組裝，吃得到 mastery
+ *
+ * mastery = Map<targetKey, 'pass' | 'fail'>，由 play.html 在每次提交後更新。
+ * 這條路徑讓「這次答對的字母，下次不再挖」成為可能 ——
+ * 靜態 levels 陣列做不到，因為它不知道學生答對了什麼。
+ *
+ * ★ 2026-11-24（r67）新增 opts.mustInclude / opts.mustIncludeProbes：
+ *   重測時「上次答錯的靶點」必須被挖，其餘名額重新組裝。
+ *   舊做法是把失敗那一關整組快照重播，於是連答對的字母也被再挖一次
+ *   （老師原話：「oo 之前寫對了呀，為什麼還會再考一次」）。
+ *
+ * ★ r68 新增 opts.targets：一關最多挖幾個**結構**（Easy 模式用）。
+ *   Easy 是「每關只挖一個 pattern」，不是「只挖一個字母」——
+ *   `oo` 跨 2 格仍然算一個空。
+ */
+export function composeLevel(analysis, levelNo = 1, mastery = null, opts = {}) {
+  const { mustInclude = null, mustIncludeProbes = null, quota: quotaOverride = null, targets = null } = opts;
+  const text = analysis?.phrase ?? analysis?.word ?? '';
+  const p = parsePhrase(text);
+
+  if (!p.isPhrase) {
+    const w = p.headWord;
+    const pool = collectWordTargets(w, 0, 0);
+    if (!pool.length) return analysis?.levels?.[0] ?? null;
+
+    const picked = composeFromPool(pool, {
+      quota: quotaOverride ?? quotaFor(w),
+      targets,
+      mastery,
+      mustInclude: resolveMustKeys(pool, mustInclude, mustIncludeProbes),
+    });
+    const blanks = [...new Set(picked.flatMap(t => t.blanks))].sort((a, b) => a - b);
+
+    return levelFromTargets(picked, {
+      level: levelNo,
+      word: p.phrase,
+      length: w.length,
+      display: prefixArticle(p) + renderCloze(w, blanks),
+      extra: {
+        phrase: p.phrase,
+        article: p.article,
+        targetWord: w,
+        contentIndex: 0,
+        targetable: [true],
+        isPhrase: false,
+        grouped: false,
+      },
+    });
+  }
+
+  const pool = collectPhrasePool(p);
+  if (!pool.length) return analysis?.levels?.[0] ?? null;
+
+  const picked = composeFromPool(pool, {
+    quota: quotaOverride ?? quotaFor(p.contentWords.join(' ')),
+    targets,
+    mastery,
+    mustInclude: resolveMustKeys(pool, mustInclude, mustIncludeProbes),
+  });
+  return phraseLevelFrom(p, picked, levelNo);
+}
+
+/**
+ * 一個詞/詞組總共幾關（只依靶點池，不依 mastery —— 一局內穩定）。
+ *
+ * @param {object} opts
+ *   maxLevels {number} 上限（Difficult 是 3；Easy 固定 2 → 每詞只考兩遍）
+ *   byTargets {boolean} 按「靶點個數」而非「格子數」算關數（Easy 用）
+ */
+export function levelCountFor(analysis, opts = {}) {
+  const { maxLevels = 3, byTargets = false } = opts;
+  const text = analysis?.phrase ?? analysis?.word ?? '';
+  const p = parsePhrase(text);
+
+  if (!p.isPhrase) {
+    const pool = collectWordTargets(p.headWord, 0, 0);
+    if (!pool.length) return 0;
+    // Easy：一關只挖一個結構 → 最多也就 pool.length 關
+    if (byTargets) return Math.max(1, Math.min(maxLevels, pool.length));
+    const total = pool.reduce((n, t) => n + t.blanks.length, 0);
+    return levelCountFromPool(total, quotaFor(p.headWord), maxLevels);
+  }
+
+  const pool = collectPhrasePool(p);
+  if (!pool.length) return 0;
+  if (byTargets) return Math.max(1, Math.min(maxLevels, pool.length));
+  const total = pool.reduce((n, t) => n + t.blanks.length, 0);
+  return levelCountFromPool(total, quotaFor(p.contentWords.join(' ')), maxLevels);
+}
+
+/**
+ * 把整組的挖空位置套進短語字串（一關可能跨多個詞）。
+ * 例：p=(a cake shop), blanks=[6,7] → 'a cake s _ _ p'
+ */
+export function renderPhraseClozeMulti(p, blanksGlobal) {
+  const set = new Set(blanksGlobal);
+  const out = [];
+  let pos = 0;
+
+  if (p.article) { out.push(p.article); out.push(' '); }
+
+  p.contentWords.forEach((w, wi) => {
+    [...w].forEach((ch, ci) => {
+      out.push(set.has(pos + ci) ? ' _' : ' ' + ch);
+    });
+    pos += w.length + 1;
+    if (wi < p.contentWords.length - 1) out.push(' ');
+  });
+
+  return out.join('').trim();
 }
 
 /**
@@ -363,6 +583,7 @@ export function analyseItem(item) {
       article: p.article,
       targetWord: p.headWord,
       contentIndex: 0,
+      targetable: [true],
       display: prefixArticle(p) + l.display,
     });
     return {
@@ -371,9 +592,13 @@ export function analyseItem(item) {
       phrase: text,
       article: p.article,
       contentWords: p.contentWords,     // ★ 單詞也要有，避免 undefined
+      targetable: p.targetable,
+      targetWords: p.targetWords,
       headWord: p.headWord,
       targetWord: p.headWord,
       contentIndex: 0,
+      quota: quotaFor(p.headWord),
+      levelCount: a.levels.length,
       levels: a.levels.map(decorate),
     };
   }
@@ -386,9 +611,14 @@ export function analyseItem(item) {
     phrase: text,
     article: p.article,
     contentWords: p.contentWords,
+    // ★ 2026-11-24：虛詞標記 / 可挖詞清單 / 每關空數 / 總關數
+    targetable: p.targetable,
+    targetWords: p.targetWords,
     headWord: p.headWord,
     targetWord: p.headWord,
-    contentIndex: p.contentWords.length - 1,
+    contentIndex: p.headIndex,
+    quota: quotaFor(p.contentWords.join(' ')),
+    levelCount: levels.length,
     graphemes: [],
     patterns: [],
     levels,
@@ -471,42 +701,54 @@ function buildAdvancedInline(sentence, item, level) {
   }
   if (matchStart < 0) return null;
 
+  // ★★ 2026-11-24 修一個會「靜默挖錯格」的偏移 bug。
+  //
+  //   舊版：遇到冠詞就 `continue`，**不推進 offset**。
+  //   那在「只有前導冠詞」的年代是對的（targetWord 不含冠詞）。
+  //   但現在短語中間也會有虛詞（ride a bicycle 的 a、a cup of tea 的 of），
+  //   它們**屬於** targetWord，必須照常推進 offset —— 否則第二、三個詞的
+  //   全域座標會整體左移，空格被畫在下一個詞的字母上。
+  //
+  //   所以這裡只剝掉「前導冠詞」這一個，其餘詞（含中間虛詞）一律走正常迴圈。
+  let matchedWords = matched.split(/\s+/);
+  const leadArticle = p.article && matchedWords[0] === p.article ? p.article : null;
+  if (leadArticle) matchedWords = matchedWords.slice(1);
+
   const groups = level.words || [];        // [[0,1,2,3],[0,1,2,3]]（每個詞的「詞內」序號）
+  const targetable = Array.isArray(level.targetable) ? level.targetable : null;
   // ★ 要挖的位置（整組的全域序號）。Advanced 會是全部字母；
-  //   progressive 多詞短語只有被挖的 pattern 那幾個。
+  //   progressive 多詞短語只有被選中的那幾個。
   const blankSet = new Set(Array.isArray(level.blanks) ? level.blanks : []);
   const useBlanks = blankSet.size > 0;
   const segments = [];
   if (matchStart > 0) segments.push({ t: 'text', v: sentence.slice(0, matchStart) });
 
-  const matchedWords = matched.split(/\s+/);
-  let ci = 0;                               // 第幾個內容詞
-  let offset = 0;                           // ★ 該詞在 targetWord（含量空格）裡的起始位置
-  for (let mi = 0; mi < matchedWords.length; mi++) {
-    const mw = matchedWords[mi];
+  // 前導冠詞照樣顯示（學生不用寫 a / an / the）
+  if (leadArticle) {
+    segments.push({ t: 'given', v: leadArticle });
+    if (matchedWords.length) segments.push({ t: 'text', v: ' ' });
+  }
 
-    // 冠詞照樣顯示（學生不用寫 a / an / the）
-    if (ARTICLES.has(mw)) {
-      segments.push({ t: 'given', v: mw });
-      if (mi < matchedWords.length - 1) segments.push({ t: 'text', v: ' ' });
-      continue;
-    }
-
+  let offset = 0;                           // ★ 該詞在 targetWord（含詞間空格）裡的起始位置
+  matchedWords.forEach((mw, wi) => {
     // ★ 只有「要挖的字母」是空格，其餘照 progressive 慣例顯示出來當鷹架。
-    const group = new Set(groups[ci] || []);
+    const group = new Set(groups[wi] || []);
+    const canBlank = targetable ? !!targetable[wi] : group.size > 0;
+
     for (let k = 0; k < mw.length; k++) {
-      const isBlank = useBlanks ? blankSet.has(offset + k) : group.has(k);
+      const isBlank = useBlanks
+        ? blankSet.has(offset + k)
+        : (canBlank && group.has(k));
       segments.push(isBlank
         // ★ index 必須是「targetWord 裡的序號」（含前面的詞與空格），
         //   不能是詞內序號 —— 否則 cake 的 0 與 shop 的 0 撞號，
         //   syncInline() 配對時會兩個詞一起變色。
-        ? { t: 'slot', v: mw[k], index: offset + k, contentIndex: ci, targetWord: mw }
+        ? { t: 'slot', v: mw[k], index: offset + k, contentIndex: wi, targetWord: mw }
         : { t: 'given', v: mw[k] });
     }
-    ci++;
     offset += mw.length + 1;                // +1 = 詞間的空格
-    if (mi < matchedWords.length - 1) segments.push({ t: 'text', v: ' ' });
-  }
+    if (wi < matchedWords.length - 1) segments.push({ t: 'text', v: ' ' });
+  });
 
   const endIdx = matchStart + matched.length;
   if (endIdx < sentence.length) segments.push({ t: 'text', v: sentence.slice(endIdx) });

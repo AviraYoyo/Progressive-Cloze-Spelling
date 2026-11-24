@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-20-r56';
+  var BUILD = '2026-11-24-r71';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-20-r56">
-<link rel="stylesheet" href="assets/css/student.css?v=2026-11-20-r56">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-24-r71">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-11-24-r71">
 </head>
 <body class="play-page">
 
@@ -124,24 +124,25 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-20-r56';
-import { diagnose } from './assets/js/blanking.js?v=2026-11-20-r56';
-import { localWordBank, loadWordList, analyseItem, buildItemInline } from './assets/js/wordbank.js?v=2026-11-20-r56';
-import { emojiForWord } from './assets/js/emoji.js?v=2026-11-20-r56';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-24-r71';
+import { diagnose } from './assets/js/blanking.js?v=2026-11-24-r71';
+import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-24-r71';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-11-24-r71';
 import {
   initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
   progress, summarise, serialise, deserialise,
-} from './assets/js/scheduler.js?v=2026-11-20-r56';
-import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech } from './assets/js/speech.js?v=2026-11-20-r56';
-import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-20-r56';
-import { recordExposure } from './assets/js/exposure.js?v=2026-11-20-r56';
-import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-20-r56';
-import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-20-r56';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-20-r56';
+  masteryFor, setTargetMastery,
+} from './assets/js/scheduler.js?v=2026-11-24-r71';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-24-r71';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-24-r71';
+import { recordExposure } from './assets/js/exposure.js?v=2026-11-24-r71';
+import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-24-r71';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-24-r71';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-24-r71';
 import {
-  scoreRound, loadMyScore, addScore, fetchClassRanking, myRank, buildRankSession,
+  scoreRound, loadMyScore, addScore, resetMyScore, fetchClassRanking, myRank, buildRankSession,
   subscribeClassRanking,
-} from './assets/js/leaderboard.js?v=2026-11-20-r56';
+} from './assets/js/leaderboard.js?v=2026-11-24-r71';
 
 const CFG = PCS_CONFIG.experiment;
 initLang();
@@ -159,6 +160,17 @@ const today = (() => {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 })();
 const sessionId = `${student.pin || 'local'}_${student.classNo || 'x'}_${today}`;
+
+// ★★ 2026-11-20：這一局的「局號」。
+//   sessionId 只到「日期」，同一天重玩會撞同一個 key ——
+//   舊版因此讓分數在 localStorage 裡累加，但正確率每局歸零，
+//   寫進排行榜就變成「points 是今天總和、accuracy 是最後一局」。
+//   現在每一局有自己的局號：分數每局歸零、rankBoard 用 `_r<局號>` 分開存，
+//   排行榜再取「最高分那一局」→ 兩個數字永遠同一局。
+const RUN_KEY = `pcs.run.${sessionId}`;
+function runNo() {
+  try { return Number(localStorage.getItem(RUN_KEY) || 0) || 1; } catch { return 1; }
+}
 
 // ★ recordExposure 需要 sessionId 與 classNo 都在 student 物件裡。
 //   直接補上去，避免每次呼叫都要記得傳。
@@ -179,6 +191,25 @@ const ASSIGNMENT_ITEMS = JSON.parse(sessionStorage.getItem('pcs.items') || '[]')
 //   為什麼預設關閉：日常練習需要 L1/L2/L3 的漸進與回溯重測，
 //   那是 PCS 的研究核心。Advanced 是給小考／階段測驗用的另一種形態。
 const ADVANCED = !!student.advanced;
+
+// ★★★ 難度（2026-11-24 · r68）
+//
+//   學生一進課程先選 Easy / Difficult，兩種難度**規則不同、成績分開記**：
+//
+//     Easy      → 每題只挖「一個結構」（oo 這種跨 2 格仍算一個空）
+//                 每個詞只考兩遍（答對 → 換另一個結構；答錯 → 同一結構補考一次）
+//                 不進回溯佇列，所以題量固定、可預期
+//     Difficult → 原規則：每題 2–3 個空、最多 3 關、答錯的結構會回溯重測
+//
+//   為什麼要分開記：Easy 的題量本來就少，跟 Difficult 混在同一張榜上，
+//   等於用「做得多」而不是「做得好」排名。所以排行榜分成上下兩欄。
+//
+//   DIFF = null 表示「還沒選」→ 進課程時先出選擇畫面。
+//   續玩（localStorage 有存檔）時直接沿用存檔裡的難度，不再問一次。
+let DIFF = null;
+const isEasy = () => DIFF === 'easy';
+/** 傳給 composeLevel / levelCountFor 的難度參數 */
+const levelOpts = () => (isEasy() ? { targets: 1, maxLevels: 2, byTargets: true } : {});
 
 // ★★★ 未登入閘門（2026-10-16 補）
 //
@@ -274,8 +305,24 @@ document.addEventListener('pcs:lang-changed', () => {
   else { updateChrome(); }
 });
 
+let __firstSpeechTried = false;
 ['touchstart', 'click', 'keydown'].forEach(ev =>
-  window.addEventListener(ev, () => { primeSpeech(); unlockAudio(); }, { once: true, passive: true }));
+  window.addEventListener(ev, () => {
+    primeSpeech();
+    unlockAudio();
+    /* ★ 2026-11-20：iOS 上「首屏自動朗讀」發生在任何手勢之前，會被系統吃掉。
+       孩子看到新詞卻沒聽到聲音，就會以為喇叭壞了。
+       所以在第一次觸碰時補唸一次 —— 只唸一次，不重複。 */
+    if (__firstSpeechTried) return;
+    __firstSpeechTried = true;
+    setTimeout(() => {
+      if (speechStarted() || !current) return;
+      // ★ 不要插隊：如果引擎已經在唸（就是剛剛那次自動朗讀，只是還沒出聲），
+      //   再唸一次會把第一句 cancel 掉，聽起來像「卡一下才唸」。
+      try { if (speechSynthesis.speaking || speechSynthesis.pending) return; } catch { }
+      try { speakWord(current.targetWord, { lang: PCS_CONFIG.ui.lang }); } catch { /* 忽略 */ }
+    }, 240);
+  }, { once: true, passive: true }));
 
 // ★ 頂部顯示「目前進入的 assignment 的 PIN」與「學生名字 / 學號」
 //   （學生答題時一眼看到自己是在哪個課程、用哪個名字，老師巡堂也方便核對）
@@ -326,6 +373,8 @@ async function init() {
     // 存的狀態必須包含目前詞庫的詞，否則接不上（換課程了）
     if (saved.wordIds.every(id => ids.has(id))) {
       state = deserialise(saved);
+      // ★ 續玩：難度沿用存檔，不再問一次（否則學生會以為進度被重置）
+      DIFF = state.difficulty;
 
       // ★★ 續玩時，把「老師後來才加進去的詞」補進這一局。
       //
@@ -350,9 +399,79 @@ async function init() {
     console.warn('[PCS] 存檔與目前作業不一致，直接開新的一局');
   }
 
-  state = initState(bank.map(w => w.wordId), { advanced: ADVANCED });
+  // ★ 全新的一局 → 先讓學生選難度，選完才建立遊戲狀態。
+  //   以前這裡直接 initState + render，等於預設困難；現在難度是學生的選擇。
+  renderDifficultyPicker();
+}
+
+/**
+ * 開始新的一局（選難度之後、或結算頁的「再玩一次 / 繼續挑戰困難」）。
+ *
+ * @param {'easy'|'difficult'} diff
+ * @param {{wrong?:Object, neverTested?:string[]}|null} carry 上一局留下的重點
+ */
+function startNewRun(diff, carry = null) {
+  DIFF = diff === 'easy' ? 'easy' : 'difficult';
+
+  // ★ 新的一局 → 局號 +1、分數歸零
+  try {
+    const cur = Number(localStorage.getItem(RUN_KEY) || 0) || 0;
+    localStorage.setItem(RUN_KEY, String(cur + 1));
+  } catch { /* 忽略 */ }
+  resetMyScore(student.sessionId);
+
+  state = initState(bank.map(w => w.wordId), { advanced: ADVANCED, difficulty: DIFF });
+  applyCarry(state, carry);
   saveState();
   render();
+}
+
+/**
+ * 重玩時把上一局的重點帶過來：
+ *   ① 之前答錯的結構 → 標成 fail（組裝時 +12，優先再挖）
+ *   ② 上一局已經答對的結構 → 標成 pass（×0.12，幾乎不再挖）→ 把名額留給沒考過的
+ *   ③ 上一局沒考到的詞 → 排到最前面
+ *
+ * ★ ② 為什麼重要：Easy 每個詞只考兩遍，一個詞往往只測了 2 個結構，
+ *   其他 5、6 個結構**從沒考過**。重玩時若不記得「哪些已經會了」，
+ *   組裝會再挑一次最高權重的那兩個 —— 學生會覺得「怎麼又是這兩個」。
+ *   記住 pass 之後，重玩自動換成沒考過的那些。
+ *
+ *   順序：先 pass 再 fail。同一個結構若兩局結果相反，以「錯」為準（複習優先）。
+ */
+function applyCarry(state, carry) {
+  if (!carry) return;
+  for (const [wordId, keys] of Object.entries(carry.passed ?? {})) {
+    if (keys?.length) setTargetMastery(state, wordId, keys, 'pass');
+  }
+  for (const [wordId, keys] of Object.entries(carry.wrong ?? {})) {
+    if (keys?.length) setTargetMastery(state, wordId, keys, 'fail');
+  }
+  const never = new Set(carry.neverTested ?? []);
+  if (never.size) {
+    state.order = [
+      ...state.order.filter(id => never.has(id)),
+      ...state.order.filter(id => !never.has(id)),
+    ];
+  }
+}
+
+/** 從剛結束的一局裡抽出「重玩要優先處理的東西」 */
+function buildCarry(st) {
+  if (!st) return null;
+  const wrong = {};
+  for (const [wordId, set] of (st.wrong ?? new Map())) {
+    const keys = [...set];
+    if (keys.length) wrong[wordId] = keys;
+  }
+  // 已經答對的結構（整關全對時標的 pass）
+  const passed = {};
+  for (const [wordId, m] of (st.targetMastery ?? new Map())) {
+    const keys = [...m].filter(([, v]) => v === 'pass').map(([k]) => k);
+    if (keys.length) passed[wordId] = keys;
+  }
+  const neverTested = (st.order ?? []).filter(id => (st.exposureCount?.get(id) ?? 0) === 0);
+  return { wrong, passed, neverTested };
 }
 
 /**
@@ -407,6 +526,92 @@ function saveState() {
 // ══════════════════════════════════════════════
 // Render a question
 // ══════════════════════════════════════════════
+
+/**
+ * ★ 難度選擇畫面（r68）
+ *
+ * 學生一進課程就看得到，選完才開始第一題。
+ * 為什麼不在登入頁選：登入頁只管「你是誰」，難度是「這一輪怎麼練」，
+ * 換 difficulty 時不必重新輸入 PIN。
+ */
+function renderDifficultyPicker() {
+  DIFF = null;
+  // ★ 2026-11-24：老師要求極簡 —— 只有大標題 + 左右兩個大方框（emoji + 名字）。
+  //   原本每格下面還有一段英文說明，小朋友根本不讀，反而讓兩個選項變小。
+  STAGE.innerHTML = `
+    <div class="diff-card">
+      <h2 data-i18n="diff.title">Choose your level</h2>
+
+      <div class="diff-rows">
+        <button class="diff-opt easy" id="pickEasy" type="button">
+          <span class="do-badge" aria-hidden="true">🌱</span>
+          <span class="do-name" data-i18n="diff.easy">Easy</span>
+        </button>
+
+        <button class="diff-opt hard" id="pickHard" type="button">
+          <span class="do-badge" aria-hidden="true">🔥</span>
+          <span class="do-name" data-i18n="diff.hard">Difficult</span>
+        </button>
+      </div>
+    </div>
+  `;
+  applyI18n(STAGE);
+
+  const pick = (diff) => {
+    try { unlockAudio(); playTap(); } catch { /* 忽略 */ }
+    startNewRun(diff);
+  };
+  STAGE.querySelector('#pickEasy')?.addEventListener('click', () => pick('easy'));
+  STAGE.querySelector('#pickHard')?.addEventListener('click', () => pick('difficult'));
+
+  // 進度條：這一局還沒開始，不要顯示「第 1 / 9 題」
+  const pl = document.getElementById('progressLabel');
+  if (pl) pl.textContent = t('diff.title');
+  const rl = document.getElementById('reviewLabel');
+  if (rl) rl.textContent = '';
+  document.getElementById('pointsNum').textContent = '0';
+}
+
+/**
+ * ★ 重測關卡的組裝（r67）
+ *
+ * 這裡只做一件事：把「上次答錯的結構」重新挖出來，剩下的名額重新分配。
+ *
+ * 為什麼不能沿用整組快照（item.spec）：
+ *   快照是「失敗那一刻的整組空」，裡面混著學生當時**答對**的字母。
+ *   原樣重播 = 答對過的字母再考一次，學生會覺得「我明明寫對了」。
+ *   （老師的原話就是這句。）
+ *
+ * 為什麼不能乾脆完全重新組裝：
+ *   佇列項的 key 是 wordId:level:probeIndex，靠「那一格是空格」才能被答到、
+ *   才能被刪掉。重新組裝時若那一格變成給定字母，佇列項永遠消不掉 →
+ *   這一局結束不了。所以用 mustInclude 把它鎖進空格裡。
+ */
+function retryLevel(item, analysis, wordId) {
+  const mastery = masteryFor(state, wordId);
+
+  // 同一個詞、同一關的所有待重測項 —— 一起挖出來，一次清乾淨。
+  // （一個 pattern 跨 2 格會有 2 條佇列項，分兩次問是同一個結構考兩遍。）
+  const pending = (state.retryQueue || []).filter(
+    q => q.wordId === wordId && q.level === item.level,
+  );
+  const keys = pending.map(q => q.targetKey).filter(Boolean);
+  const probes = [item.probeIndex, ...pending.map(q => q.probeIndex)]
+    .filter(n => Number.isInteger(n));
+
+  const out = composeLevel(analysis, item.level, mastery, {
+    mustInclude: keys,
+    mustIncludeProbes: probes,
+    // Easy：補考也只挖那一個結構（不要補考時又冒出一堆空）
+    targets: isEasy() ? 1 : null,
+  });
+
+  // 保險：要重測的那一格必須真的是空格，否則退回整組快照（極舊存檔才走這裡）
+  if (out && Array.isArray(out.blanks) && out.blanks.includes(item.probeIndex)) return out;
+  if (item.spec && (item.spec.blanks ?? []).includes(item.probeIndex)) return item.spec;
+  return out ?? item.spec ?? null;
+}
+
 // ★ 自動朗讀用的去重：只在「換了一個新單詞」時才讀，
 //   同一個詞的 L2 / L3 不重複朗讀，避免課堂上一直重複出聲。
 let lastAutoSpokeWordId = null;
@@ -422,11 +627,20 @@ function render() {
 
   const analysis = analyseItem(wordObj.word);
 
+  // ★★ 2026-11-24：關數與關內容分開。
+  //
+  //   舊版 analysis.levels 既是「總關數」又是「每關的題目」，
+  //   所以出題只能 levels[level-1] —— 靜態、不可變。
+  //   現在：
+  //     lvTotal  = levelCountFor()  → 這個詞一共幾關（只依靶點池，一局內穩定）
+  //     composeLevel()              → 這一關實際挖哪幾個字母（吃 mastery 記憶）
+  const lvTotal = ADVANCED ? 1 : levelCountFor(analysis, levelOpts());
+
   // ★ 防呆：某些字串（例如 ping_pong、don't、t-shirt、單字母 a）
   //   產生 0 關。沒有關卡就沒辦出題目 —— 直接讀 lvl 會是 undefined，
   //   然後 `lvl.targetWord` 拋 TypeError，整局卡在「Loading failed」。
   //   這裡寧可跳過這個詞，也不要讓學生看到壞掉的畫面。
-  if (!analysis?.levels?.length) {
+  if (!lvTotal) {
     console.warn('[PCS] 這個詞無法產生關卡，已跳過：', wordObj.word);
     skipUnplayable(wordObj.wordId, item);
     return;
@@ -438,7 +652,7 @@ function render() {
   const done = state.levelProgress.get(wordObj.wordId) || 0;
   const level = item.kind === 'retry'
     ? item.level
-    : Math.min(done + 1, analysis.levels.length);
+    : Math.min(done + 1, lvTotal);
   const isAdvance = item.kind === 'advance';
   // ★★★★★ Advanced mode（整詞自行填寫的考試模式）
   //
@@ -450,9 +664,24 @@ function render() {
   //
   //  作法：自己造一個「整詞全挖」的 level 物件，
   //  而不去改 analyseItem 的輸出 —— 這樣 progressive 模式完全不受影響。
+  //
+  // ★★★ 重測的空組：只鎖定「答錯的那個結構」，其餘重新組裝。
+  //
+  //   舊版直接拿 item.spec 原樣重播 —— 於是上一輪**已經答對**的字母
+  //   也被再挖一次（老師原話：「oo 之前寫對了呀，為什麼還會再考一次，
+  //   為什麼不把 oo 換成別的，比如摳 ride 裡面的詞，甚至是 sc」）。
+  //
+  //   現在：
+  //     ① 把「同一個詞、同一關」所有待重測項的靶點都塞進來（保證那幾格是空格，
+  //        佇列項才刪得掉，不會卡死）；
+  //     ② 剩下的名額照常由 composeFromPool 補 —— 答對過的靶點已被 mastery
+  //        壓到 0.12 倍，補進來的通常是這個詞裡還沒考過的另一個結構。
+  //     ③ 最後驗一次：萬一那一格仍不是空格（極舊存檔），才退回整組快照。
   const lvl = ADVANCED
     ? buildAdvancedLevel(wordObj.word)
-    : analysis.levels[Math.min(level - 1, analysis.levels.length - 1)];
+    : (item.kind === 'retry')
+      ? retryLevel(item, analysis, wordObj.wordId)
+      : composeLevel(analysis, level, masteryFor(state, wordObj.wordId), levelOpts());
 
   // ★ 最後一道保險： level 算成 0 或負數時會取到 undefined
   if (!lvl) {
@@ -476,10 +705,13 @@ function render() {
     level: lvl.level,
     blanks: lvl.blanks,
     target: lvl.target,
+    // ★ 本關的所有靶點（一關可能挖 2–3 個不同的語音結構）
+    targets: lvl.targets ?? (lvl.target ? [lvl.target] : []),
     targetWord: lvl.targetWord || wordObj.word,
     // ★ADV 考試模式需要用到逐詞的字母索引（畫詞間分隔）
     levelObj: lvl,
     advanced: ADVANCED,
+    lvTotal,
     sentence: inlineOk ? sentence : null,   // ★ null = 沒有可安全顯示的例句
     inline: inlineOk ? inline : null,
     exposureIndex: item.exposureIndex ?? 0,
@@ -501,7 +733,7 @@ function drawQuestion() {
   const { wordObj, blanks, sentence, inline, item, targetWord } = current;
 
   // 進度：顯示目前是第幾關 / 這個詞共幾關，讓學生知道還有下一步
-  const totalLv = current?.analysis?.levels?.length ?? 1;
+  const totalLv = current?.lvTotal ?? 1;
   // ★ADV 考試模式沒有「關卡」概念（每詞只出現一次），所以不顯示 Level chip，
   //   只保留進度（第 n / 共 m 題）。顯示「Level 1 of 2」會誤導學生以為還有下一關。
   const badge = item.kind === 'retry'
@@ -988,6 +1220,15 @@ async function submit() {
   const btn = STAGE.querySelector('#submitBtn');
   btn.disabled = true;
 
+  // ★★ 2026-11-24：逐格找到「它所屬的靶點」。
+  //
+  //   舊版整關共用 `target.category` —— 一關只有一個 pattern，所以成立。
+  //   現在一關可能同時挖 y（y_as_vowel）和 i_e（magic_e），
+  //   若還是整關打同一個類別，後台「哪個語音結構最難」的統計就失真了。
+  const targets = current.targets ?? [];
+  const targetByIndex = new Map();
+  for (const t of targets) for (const b of t.blanks ?? []) targetByIndex.set(b, t);
+
   const probes = [];
   let allCorrect = true;
   let firstWrong = null;
@@ -997,6 +1238,7 @@ async function submit() {
     const got = el.value.trim().toLowerCase();
     const expect = targetWord[bi];
     const correct = got === expect;
+    const own = targetByIndex.get(bi);
 
     el.classList.remove('no');
     if (correct) {
@@ -1013,8 +1255,9 @@ async function submit() {
       i: bi, expect, got, correct,
       ms: Math.round(performance.now() - questionStart),
       attemptNo: attempts[bi],
-      phonClass: target.category,
-      errorCode: correct ? null : diagnose(targetWord, blanks, bi, got, target).code,
+      phonClass: own?.category ?? target?.category ?? null,
+      targetKey: own?.key ?? null,
+      errorCode: correct ? null : diagnose(targetWord, blanks, bi, got, own ?? target).code,
     });
   }
 
@@ -1065,26 +1308,57 @@ async function submit() {
 
     // ★ 答錯的資料一樣要記錄 —— 否則研究資料會漏掉「哪個字母最容易錯」，
     //   這正是 PCS 的核心指標。回溯佇列也靠這裡。
+    //
+    //   ★ spec = 這一關的空組快照。重測時原樣重播，不重新組裝。
     for (const p of probes) {
       recordAnswer(state, {
         wordId: wordObj.wordId, level, probeIndex: p.i,
         correct: p.correct, expect: p.expect, got: p.got,
         phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
+        spec: current.levelObj,
       });
     }
 
+    // ★★ 本局記憶：**逐個靶點**判定，不是整關一個結論。
+    //
+    //   舊版只標 'fail'，答對的靶點完全不動（保持「未測」）——
+    //   於是同一個詞重測時，上一輪明明寫對的 oo 又被挖了一次。
+    //   老師看到的就是：「oo 之前寫對了呀，為什麼還會再考一次」。
+    //
+    //   現在：這個靶點的每一格都對 → 'pass'（下次不挖）；
+    //         有任何一格錯 → 'fail'（下次優先挖）。
+    //   注意判定必須用「這個靶點自己的格子」，不能用整關的 allCorrect。
+    const wrongSet = new Set(probes.filter(p => !p.correct).map(p => p.i));
+    for (const tg of targets) {
+      const ownBlanks = tg.blanks ?? [];
+      if (!ownBlanks.length) continue;
+      const failed = ownBlanks.some(b => wrongSet.has(b));
+      setTargetMastery(state, wordObj.wordId, [tg.key], failed ? 'fail' : 'pass');
+    }
+
+    // ★★ 2026-11-20：答錯的那一輪「不發分」。
+    //
+    //  原本每一輪都照 `scoreRound` 發分（答對字母 ×10 + 堅持分），
+    //  於是同一個詞重試三次＝同一批字母領三次分。
+    //  症狀就是老師看到的：正確率 43% 的學生，因為一直重試，分數反而是全班最高。
+    //
+    //  現在：分數只在「整詞做對」那一刻結算；
+    //  堅持分（+5/字母，最多 +10）仍然照文件寫的意旨在成功那一輪發。
+    //  答錯的資料照樣完整記錄（研究資料不受影響），只是不計分。
     const scWrong = scoreRound({ probes, durationMs, wordCompleted: false, hadError: true });
-    addScore(student.sessionId, scWrong);
+    scWrong.points = 0;
     updateChrome();
 
     enqueue(recordExposure({
       student, word: targetWord, wordId: wordObj.wordId, sentence,
       phrase: wordObj.word, isPhrase: !!current.analysis?.isPhrase,
-      level, targetPattern: target.pattern, targetCategory: target.category,
-      targetWeight: target.weight, blanks, probes, durationMs,
+      level, targetPattern: target?.pattern, targetCategory: target?.category,
+      targetWeight: target?.weight, blanks, probes, durationMs,
+      targets,
       exposureIndex: current.exposureIndex,
       isRetry: item.kind === 'retry',
       mode: ADVANCED ? 'dictation' : 'progressive',
+      difficulty: state.difficulty,
       points: scWrong.points,
     }));
 
@@ -1128,8 +1402,16 @@ async function submit() {
       wordId: wordObj.wordId, level, probeIndex: p.i,
       correct: p.correct, expect: p.expect, got: p.got,
       phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
+      spec: current.levelObj, targetKey: p.targetKey ?? null,
+      // ★ Easy：每詞只考兩遍 → 補考（retry）再錯就不再排隊。
+      //   困難模式維持原樣（錯了就回頭再考，直到答對）。
+      retryAllowed: !(isEasy() && item.kind === 'retry'),
     });
   }
+
+  // ★★ 本局記憶：整關全對 → 這一關的靶點全部標成 'pass'。
+  //   下一關組裝時它們的權重 ×0.12，實際效果就是「答對的字母不再挖」。
+  setTargetMastery(state, wordObj.wordId, targets.map(tg => tg.key), 'pass');
 
   // ── 計分 ──
   const sc = scoreRound({
@@ -1143,11 +1425,13 @@ async function submit() {
   enqueue(recordExposure({
     student, word: targetWord, wordId: wordObj.wordId, sentence,
     phrase: wordObj.word, isPhrase: !!current.analysis?.isPhrase,
-    level, targetPattern: target.pattern, targetCategory: target.category,
-    targetWeight: target.weight, blanks, probes, durationMs,
+    level, targetPattern: target?.pattern, targetCategory: target?.category,
+    targetWeight: target?.weight, blanks, probes, durationMs,
+    targets,
     exposureIndex: current.exposureIndex,
     isRetry: item.kind === 'retry',
     mode: ADVANCED ? 'dictation' : 'progressive',
+    difficulty: state.difficulty,
     points: sc.points,
   }));
 
@@ -1175,7 +1459,11 @@ async function submit() {
     const reached = Math.max(doneNow, level);
     state.levelProgress.set(wordObj.wordId, reached);
 
-    if (reached >= analysis.levels.length) {
+    if (isEasy() && item.kind === 'retry') {
+      // ★ Easy：每個詞只有兩次機會 —— 第一次錯了、補考答對，
+      //   這個詞就算完成（不再排 L2，否則會出現第三次）。
+      markMastered(state, wordObj.wordId);
+    } else if (reached >= (current.lvTotal ?? analysis.levels.length)) {
       // 所有關卡都過了 → 這個詞才真的結束
       markMastered(state, wordObj.wordId);
     } else {
@@ -1202,11 +1490,17 @@ function skip() {
   answeredAll = true;
 
   const { wordObj, level, item, blanks, targetWord } = current;
+  // ★ 逐格對到自己所屬的靶點（一關可能有多個 pattern）
+  const skipTargets = current.targets ?? [];
+  const skipByIndex = new Map();
+  for (const tg of skipTargets) for (const b of tg.blanks ?? []) skipByIndex.set(b, tg);
+
   const probes = blanks.map(bi => ({
     i: bi, expect: targetWord[bi], got: '', correct: false,
     ms: Math.round(performance.now() - questionStart),
     attemptNo: attempts[bi] ?? 1,
-    phonClass: current.target.category,
+    phonClass: skipByIndex.get(bi)?.category ?? current.target?.category,
+    targetKey: skipByIndex.get(bi)?.key ?? null,
     errorCode: 'skipped',
   }));
 
@@ -1214,17 +1508,21 @@ function skip() {
     recordAnswer(state, {
       wordId: wordObj.wordId, level, probeIndex: p.i, correct: false,
       expect: p.expect, got: '', phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
+      spec: current.levelObj, targetKey: p.targetKey,
+      retryAllowed: !(isEasy() && item.kind === 'retry'),
     });
   }
 
   enqueue(recordExposure({
     student, word: targetWord, wordId: wordObj.wordId, sentence: current.sentence ?? '',
     phrase: wordObj.word, isPhrase: !!current.analysis?.isPhrase,
-    level, targetPattern: current.target.pattern, targetCategory: current.target.category,
-    targetWeight: current.target.weight, blanks, probes,
+    level, targetPattern: current.target?.pattern, targetCategory: current.target?.category,
+    targetWeight: current.target?.weight, blanks, probes,
+    targets: skipTargets,
     durationMs: Math.round(performance.now() - questionStart),
     exposureIndex: current.exposureIndex, isRetry: item.kind === 'retry',
-    mode: ADVANCED ? 'dictation' : 'progressive', skipped: true,
+    mode: ADVANCED ? 'dictation' : 'progressive',
+    difficulty: state.difficulty, skipped: true,
   }));
 
   state.poolIndex = Math.max(state.poolIndex, state.order.indexOf(wordObj.wordId) + 1);
@@ -1271,7 +1569,9 @@ async function renderResult() {
     <div class="result-card">
       <div class="result-emoji">🎉</div>
       <h2>${escapeHtml(t('done.title'))}</h2>
-      <p class="sub">${escapeHtml(t('done.sub', { n: s.wordsMastered }))}</p>
+      <p class="sub">${escapeHtml(t('done.sub', { n: s.wordsMastered }))}
+        <span class="diff-chip ${isEasy() ? 'easy' : 'hard'}">${escapeHtml(t(isEasy() ? 'diff.easyTag' : 'diff.hardTag'))}</span>
+      </p>
 
       <div class="result-points">⭐ ${my.points}</div>
 
@@ -1287,13 +1587,24 @@ async function renderResult() {
         <ul class="recap-list">${recapItems}</ul>
       </div>
 
-      <button class="btn-done" id="doneBtn" type="button" data-i18n="done.back">Back</button>
+      <div class="result-actions">
+        ${isEasy() ? `<button class="btn-continue" id="hardBtn" type="button" data-i18n="done.continueHard">Continue with Difficult</button>` : ''}
+        <button class="btn-again" id="againBtn" type="button" data-i18n="done.playAgain">Play again</button>
+        <button class="btn-done" id="doneBtn" type="button" data-i18n="done.back">Back</button>
+      </div>
     </div>
   `;
   applyI18n(STAGE);
   // ★ 整局結束 → 大範圍撒彩帶慶祝
   confettiCelebrate();
+
+  // ★ 重玩時把「這一局錯過的結構 / 沒考到的詞」帶到下一局。
+  //   一定要在 startNewRun 之前算 —— 它會把 state 換掉。
+  const carry = buildCarry(state);
+
   STAGE.querySelector('#doneBtn')?.addEventListener('click', () => { location.href = 'index.html'; });
+  STAGE.querySelector('#againBtn')?.addEventListener('click', () => startNewRun(DIFF, carry));
+  STAGE.querySelector('#hardBtn')?.addEventListener('click', () => startNewRun('difficult', carry));
 
   localStorage.removeItem(`pcs.state.${student.sessionId}`);
   await pushRankSession();
@@ -1332,17 +1643,23 @@ async function pushRankSession() {
 
     const batch = writeBatch(db);
     // ① 完整 session（老師專屬）
-    batch.set(doc(db, PCS_CONFIG.collections.sessions, student.sessionId), {
+    batch.set(doc(db, PCS_CONFIG.collections.sessions, `${student.sessionId}_r${runNo()}`), {
       ...payload, authUid, serverTs,
     });
     // ② 公開排名板（學生可讀）—— 只帶排行榜上看得見的欄位
-    batch.set(doc(db, PCS_CONFIG.collections.rankBoard, student.sessionId), {
+    //   ★ doc id 帶局號：同一天重玩不會覆蓋上一局的成績，
+    //     排行榜取「最高分那一局」→ points 與 accuracy 一定同一局。
+    batch.set(doc(db, PCS_CONFIG.collections.rankBoard, `${student.sessionId}_r${runNo()}`), {
       sessionId: payload.sessionId,
       assignmentId: payload.assignmentId,
       pin: payload.pin,
       className: payload.className,
       classNo: payload.classNo,
       studentName: payload.studentName,
+      dateKey: payload.dateKey,          // ★ 排行榜只比今天
+      // ★ r68：排行榜分上下兩欄（簡單 / 困難），靠這個欄位分組。
+      //   同一個學生兩個難度都玩過 → 兩篇 doc、兩欄都出現。
+      difficulty: payload.difficulty,
       points: payload.points,
       accuracy: payload.accuracy,
       wordsMastered: payload.wordsMastered,
@@ -1460,6 +1777,17 @@ async function refreshRankingOnce() {
   applyI18n(document.getElementById('rankDrawer'));
 }
 
+/**
+ * ★ 2026-11-24（r68）：排行榜分成上下兩欄（簡單 / 困難）。
+ *
+ * 為什麼一定要分開：Easy 每題只挖一個結構、每個詞只考兩遍，
+ * 題量本來就只有 Difficult 的三分之一。混在同一張榜上，
+ * 等於用「做得多」而不是「做得好」排名 —— 選簡單的學生永遠贏。
+ *
+ * 同一個學生兩個難度都玩過 → 兩欄都會出現（Firestore 是兩篇 doc）。
+ */
+const normDiff = d => (d === 'easy' ? 'easy' : 'difficult');
+
 function drawRanking(ranking) {
   // ★ 留一份最新的名單：自己的分數一變（updateChrome）就用它重畫，
   //   不必再打一次 Firestore。
@@ -1467,39 +1795,68 @@ function drawRanking(ranking) {
 
   const body = document.getElementById('rankBody');
   const my = loadMyScore(student.sessionId);
+  // 這一局目前為止的正確率 —— 本機分數一定要配本機正確率，
+  // 否則「自己」那一列會出現「300 分 / 0%」這種看起來像壞掉的組合。
+  const myAcc = state?.stats?.probes ? state.stats.correct / state.stats.probes : 0;
+  const myDiff = DIFF ? normDiff(DIFF) : 'difficult';
 
-  // 本機分數先併進去（Firestore 還沒同步上來時也能看到自己）
-  const me = ranking.find(s => String(s.classNo) === String(student.classNo) && s.name === student.studentName);
-  if (me) me.points = Math.max(me.points, my.points);
-  else if (my.points > 0) ranking.push({
-    classNo: student.classNo, name: student.studentName,
-    points: my.points, accuracy: 0, rank: 0,
-  });
+  const isMe = s => String(s.classNo) === String(student.classNo) && s.name === student.studentName;
 
-  const sorted = [...ranking].sort((a, b) => b.points - a.points);
-  sorted.forEach((s, i) => s.rank = i + 1);
-  const mine = myRank(sorted, student.classNo, student.studentName);
+  // 本機分數只併進「我目前這個難度」那一欄
+  const me = ranking.find(s => isMe(s) && normDiff(s.difficulty) === myDiff);
+  if (me) {
+    if (my.points >= me.points) { me.points = my.points; me.accuracy = myAcc; }
+  } else if (my.points > 0) {
+    ranking.push({
+      classNo: student.classNo, name: student.studentName,
+      difficulty: myDiff, points: my.points, accuracy: myAcc, rank: 0,
+    });
+  }
 
-  const top = sorted.slice(0, 10);
+  const groups = [
+    { key: 'easy', title: t('rank.easyGroup'), rows: [] },
+    { key: 'difficult', title: t('rank.hardGroup'), rows: [] },
+  ];
+  for (const r of ranking) {
+    (normDiff(r.difficulty) === 'easy' ? groups[0] : groups[1]).rows.push(r);
+  }
+  for (const g of groups) {
+    g.rows.sort((a, b) => b.points - a.points || b.accuracy - a.accuracy);
+    g.rows.forEach((s, i) => { s.rank = i + 1; });
+  }
 
-  body.innerHTML = sorted.length === 0
-    ? `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`
-    : `
-      <ol class="rank-list">
-        ${top.map(s => {
-          const isMe = String(s.classNo) === String(student.classNo) && s.name === student.studentName;
-          const medal = s.rank === 1 ? '🥇' : s.rank === 2 ? '🥈' : s.rank === 3 ? '🥉' : s.rank;
-          return `<li class="${isMe ? 'me' : ''}">
-            <span class="rk">${medal}</span>
-            <span class="nm">${escapeHtml(s.name)}${isMe ? ' ★' : ''}</span>
-            <span class="sc">${s.classNo}</span>
-            <span class="acc">${s.accuracy ? Math.round(s.accuracy * 100) + '%' : '—'}</span>
-            <span class="pt">${s.points}</span>
-          </li>`;
-        }).join('')}
-      </ol>
-      ${mine ? `<div class="my-rank">${escapeHtml(t('rank.rank'))} <b>#${mine.rank}</b> / ${mine.total} · ${mine.points} ⭐</div>` : ''}
-    `;
+  if (!ranking.length) {
+    body.innerHTML = `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`;
+    return;
+  }
+
+  body.innerHTML = groups.map((g) => {
+    const top = g.rows.slice(0, 10);
+    const list = top.length
+      ? `<ol class="rank-list">
+          ${top.map((s) => {
+            const medal = s.rank === 1 ? '🥇' : s.rank === 2 ? '🥈' : s.rank === 3 ? '🥉' : s.rank;
+            return `<li class="${isMe(s) ? 'me' : ''}">
+              <span class="rk">${medal}</span>
+              <span class="nm">${escapeHtml(s.name)}${isMe(s) ? ' ★' : ''}</span>
+              <span class="sc">${s.classNo}</span>
+              <span class="acc">${s.accuracy ? Math.round(s.accuracy * 100) + '%' : '—'}</span>
+              <span class="pt">${s.points}</span>
+            </li>`;
+          }).join('')}
+        </ol>`
+      : `<div class="rank-empty">${escapeHtml(t('rank.groupEmpty'))}</div>`;
+    const mine = myRank(g.rows, student.classNo, student.studentName);
+    // ★ 「我的名次」只在**目前這一局所屬**的那一欄顯示。
+    //   同時玩過兩欄的學生（Easy 做完又去 Difficult）兩欄都有自己，
+    //   兩邊各印一次「Rank #2 / 2」會讓人以為重複計算。
+    const isCurrent = g.key === myDiff;
+    return `<div class="rank-group ${g.key}${isCurrent ? ' current' : ''}">
+      <div class="rank-group-head"><span class="rg-dot"></span>${escapeHtml(g.title)}</div>
+      ${list}
+      ${isCurrent && mine ? `<div class="my-rank">${escapeHtml(t('rank.rank'))} <b>#${mine.rank}</b> / ${mine.total} · ${mine.points} ⭐</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════════
@@ -1526,6 +1883,15 @@ window.__PCS__ = {
     STAGE.querySelector('#submitBtn')?.click();
   },
   skip: () => STAGE.querySelector('#skipBtn')?.click(),
+  // ★ 截圖/回歸用：直接把這一局推到結束，檢查結算頁與排行榜分欄
+  finish: () => {
+    state.masteredWords = new Set(state.order);
+    state.poolIndex = state.order.length;
+    state.retryQueue = [];
+    state.levelQueue = [];
+    render();
+  },
+  render,
   t,
 };
 
