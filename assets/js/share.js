@@ -71,20 +71,36 @@ export function uniqueTitle(base, taken = []) {
     .map(x => String(x || '').trim().toLowerCase()));
   if (!used.has(title.toLowerCase())) return title;
 
-  // 已經存在 "Title (n)" 的話，從最大的 n 往上加，而不是從 2 重新數
-  const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // ★ r78/r79：來源自己就是「Title (2)」時，要接著數成 (3)，不能疊成
+  //   “Title (2) (2)”（Windows 複製「Unit 1 (2)」也是給「Unit 1 (3)」）。
+  //   所以先把結尾的編號拆掉，拿「根標題」去數現有的最大編號。
+  //
+  //   但括號裡的數字不一定是複製次數 —— 老師也會取「Dictation (2026)」這種
+  //   年份名。所以只有 2–99 這種「一看就是複製編號」的數字才拆；
+  //   其他的照 Windows 的作法接在後面 → “Dictation (2026) (2)”。
+  let root = title;
+  let startN = 1;
+  const tail = /^(.*\S)\s*\((\d+)\)$/.exec(title);
+  if (tail) {
+    const n = Number(tail[2]);
+    if (n >= 2 && n <= 99) { root = tail[1].trim(); startN = n; }
+  }
+
+  const esc = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`^${esc} \\((\\d+)\\)$`, 'i');
-  let maxN = 1;
+  // 根標題本身在清單裡 → 已經算第 1 份
+  let maxN = used.has(root.toLowerCase()) ? 1 : 0;
+  if (used.has(title.toLowerCase())) maxN = Math.max(maxN, startN);
   for (const t of used) {
     const m = re.exec(String(t).trim());
     if (m) maxN = Math.max(maxN, Number(m[1]));
   }
 
   let n = Math.max(2, maxN + 1);
-  let candidate = `${title} (${n})`;
+  let candidate = `${root} (${n})`;
   while (used.has(candidate.toLowerCase())) {
     n += 1;
-    candidate = `${title} (${n})`;
+    candidate = `${root} (${n})`;
   }
   return candidate;
 }

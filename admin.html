@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r76';
+  var BUILD = '2026-11-25-r79';
   // ★ 公開給 module 與 console 用（版本排查時第一個要看的東西）
   window.__PCS_BUILD = BUILD;
 
@@ -50,7 +50,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r76">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r79">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -1533,22 +1533,22 @@ setTimeout(function () {
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r76';
-import { initFirebase } from './assets/js/firebase.js?v=2026-11-25-r76';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-25-r76';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-25-r76';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-25-r76';
-import { analyseItem } from './assets/js/phrase.js?v=2026-11-25-r76';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-25-r76';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r79';
+import { initFirebase } from './assets/js/firebase.js?v=2026-11-25-r79';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-25-r79';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-25-r79';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-25-r79';
+import { analyseItem } from './assets/js/phrase.js?v=2026-11-25-r79';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-25-r79';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-11-25-r76';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-25-r76';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-25-r76';
+} from './assets/js/assignments.js?v=2026-11-25-r79';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-25-r79';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-25-r79';
 import {
   shareUrl, sharePinFrom, buildCopyPayload, payloadBytes, MAX_COPY_BYTES, classifyImport, uniqueTitle,
-} from './assets/js/share.js?v=2026-11-25-r76';
+} from './assets/js/share.js?v=2026-11-25-r79';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
@@ -3836,38 +3836,31 @@ async function handleSharePin(pin) {
     return;
   }
 
-  // ② 本來就是我自己建的（先判這個 —— 否則我自己的複製品會被說成「已添加過」）
-  const verdict = classifyImport(src, me?.uid, window.__pcsMineAssignments || []);
-  if (verdict.kind === 'mine') {
-    showImportDialog({
-      title: 'This is already yours',
-      sub: `“${src.title}” (PIN ${src.pin}) is already in Your assignments. There is nothing to copy.`,
-      secondary: {
-        label: 'Show PIN',
-        action: () => { closeImportDialog(); openPinModal(String(src.pin), src.title); },
-      },
-      neutral: { label: 'OK', action: closeImportDialog },
-    });
-    return;
-  }
-
-  // ③ 我之前已經複製過這一源作業
+  // ②③ 已經在我的帳號裡 → 照樣再存一份
   //
-  // ★★ 2026-11-25（r76）：改成「照樣再存一份」。
+  // ★★ 2026-11-25（r76／r77）：一律「再複製一份」，不再分「本來就是我的」
+  //   和「我之前複製過」。
   //
-  //   原本這裡只給一個「Open my copy」，等於老師拿到同一條連結就再也存不進來
-  //   （例如想為另一班開一份、或想保留原本那份的舊資料）。
-  //   現在直接複製第二份，標題照 Windows 的習慣編號：
+  //   原本 kind === 'mine' 只彈一句「This is already yours … There is nothing
+  //   to copy.」—— 但老師點一條連結，幾乎都是想為另一班／另一節課開一份新作業
+  //   （自己的舊作業也可能早被學生玩過、想重新開始）。擋下來等於白點一次。
+  //   現在兩種情況都直接複製，標題照 Windows 的習慣編號：
   //   “Unit 1 Dictation Scope” → “Unit 1 Dictation Scope (2)” → (3) …
-  if (verdict.kind === 'copied') {
-    const existing = verdict.copy;
+  const verdict = classifyImport(src, me?.uid, window.__pcsMineAssignments || []);
+  if (verdict.kind === 'mine' || verdict.kind === 'copied') {
     const nextTitle = uniqueTitle(src.title, (window.__pcsMineAssignments || []).map(a => a.title));
+    const mineAlready = verdict.kind === 'mine';
     showImportDialog({
       title: 'Saving another copy…',
-      sub: `You already have “${src.title}” as PIN ${existing.pin}. `
-         + `A second, independent copy will be saved as “${nextTitle}”.`,
-      note: 'Each copy has its own PIN and its own results.',
-      neutral: { label: 'Cancel', action: closeImportDialog },
+      sub: mineAlready
+        ? `“${src.title}” (PIN ${src.pin}) is already yours. `
+          + `A second, independent copy will be saved as “${nextTitle}”.`
+        : `You already have “${src.title}” as PIN ${verdict.copy.pin}. `
+          + `A second, independent copy will be saved as “${nextTitle}”.`,
+      note: 'Each copy has its own PIN and its own results — the original stays exactly as it is.',
+      // ★ 這顆只是「把框收起來」，複製已經在跑了 —— 所以標 Hide 而不是 Cancel，
+      //   免得老師以為按下去就取消（舊字 Cancel 其實取消不了）。
+      neutral: { label: 'Hide', action: closeImportDialog },
     });
     runImport(src);          // 不再多問一次 —— 老師點連結就是要這份作業
     return;
@@ -3994,10 +3987,14 @@ window.addEventListener('pageshow', (e) => {
 async function runImport(src) {
   const btn = impEl.Primary;
   const neutral = impEl.Neutral;
+  // ★ r77：「自動複製」那條路徑的彈窗只有 Cancel 一顆（Primary 是隱藏的）。
+  //   失敗時如果把文字寫在一顆隱藏按鈕上，老師就只看到錯誤訊息、沒有按鈕可按，
+  //   所以記住「本來是隱藏的」，失敗時把它變成看得見的 Try again。
+  const btnWasHidden = btn.hidden;
   const label = btn.textContent;
   btn.disabled = true;
   neutral.disabled = true;
-  btn.textContent = 'Adding…';
+  if (!btnWasHidden) btn.textContent = 'Adding…';
   impEl.Msg.textContent = '';
 
   try {
@@ -4014,9 +4011,16 @@ async function runImport(src) {
   } catch (e) {
     console.error('[PCS] 複製作業失敗', e);
     impEl.Msg.textContent = friendlyCopyError(e);
-    btn.disabled = false;
     neutral.disabled = false;
-    btn.textContent = label;
+    btn.disabled = false;
+    if (btnWasHidden) {
+      // 自動複製失敗 → 給一顆看得見的重試鍵（否則這個彈窗只剩「Cancel」）
+      btn.hidden = false;
+      btn.textContent = 'Try again';
+      btn.onclick = () => runImport(src);
+    } else {
+      btn.textContent = label;
+    }
   }
 }
 
@@ -5388,7 +5392,7 @@ window.__pcsOnReady = async () => {
 
     <!-- ★ 2026-11-24：投影時全班直接掃這個碼進站，不必手打網址 -->
     <div class="pinbig-qr">
-      <img src="assets/img/qr-site.png?v=2026-11-25-r76"
+      <img src="assets/img/qr-site.png?v=2026-11-25-r79"
            alt="QR code that opens the student join page">
       <span>Scan to open the join page</span>
     </div>

@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r76';
+  var BUILD = '2026-11-25-r79';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-11-25-r76">
-<link rel="stylesheet" href="./assets/css/student.css?v=2026-11-25-r76">
+<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-11-25-r79">
+<link rel="stylesheet" href="./assets/css/student.css?v=2026-11-25-r79">
 <style>
 .login-page {
   min-height: 100dvh;
@@ -130,21 +130,23 @@
   display: flex; align-items: center; gap: 8px;
   margin-left: 0;   /* 蓋掉 student.css 給 .lang-slot 的 margin-left */
 }
+/* ★ 2026-11-25：改成純黑實心（使用者指定）。
+   淺色藥丸在米白底上太容易和下面的卡片混在一起，看起來像表單的一部分；
+   黑底白字反而更明確是「另一個入口」，也更不容易被當成可按的主按鈕。 */
 .console-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   height: 36px; padding: 0 13px;
   border-radius: 18px;
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  color: var(--ink-soft);
+  background: #111827;
+  border: 1.5px solid #111827;
+  color: #FFFFFF;
   font-size: 12.5px; font-weight: 700; white-space: nowrap;
   box-shadow: var(--shadow-sm);
-  opacity: .85;
   transition: background .18s, border-color .18s, color .18s, opacity .18s;
 }
-.console-btn .cx-ico { font-size: 12px; line-height: 1; opacity: .8; }
-.console-btn:hover { background: var(--card-alt); border-color: var(--line-mid); color: var(--ink-mid); opacity: 1; }
-.console-btn:active { transform: scale(.97); background: var(--orange-soft); }
+.console-btn .cx-ico { font-size: 12px; line-height: 1; }
+.console-btn:hover { background: #1F2937; border-color: #1F2937; color: #FFFFFF; }
+.console-btn:active { transform: scale(.97); background: #000000; border-color: #000000; }
 
 /* 窄螢幕（手機）：只留鎖頭圖示，避免和置中的品牌標誌擠在一起 */
 @media (max-width: 430px) {
@@ -286,10 +288,10 @@ window.addEventListener('unhandledrejection', function (e) {
 import {
   primeSpeech, speechStatus, speakSentence,
   listVoiceChoices, getVoicePref, setVoicePref, speakWithVoice,
-} from './assets/js/speech.js?v=2026-11-25-r76';
-import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-11-25-r76';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r76';
-import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-11-25-r76';
+} from './assets/js/speech.js?v=2026-11-25-r79';
+import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-11-25-r79';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r79';
+import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-11-25-r79';
 
 initLang();
 applyI18n(document);
