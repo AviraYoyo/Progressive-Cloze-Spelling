@@ -417,14 +417,199 @@ export function quotaFor(text) {
   return String(text ?? '').replace(/\s+/g, ' ').trim().length >= 7 ? 3 : 2;
 }
 
+// ═════════════════════════════════════════════════════════════
+// ★ 2026-11-25（r72）：構詞層 —— 前綴 / 後綴
+// ═════════════════════════════════════════════════════════════
+//
+// 為什麼要单独一層：
+//   語音層（scanPatterns）只看「這幾個字母發什麼音」，看不到構詞。
+//   teacher 的 er 被當成 r-控元音、unhappy 的 un 被當成短母音 + n ——
+//   學生答對之後學到的是「這裡有個怪音」，不是「這裡有個後綴」。
+//   老師的要求是：前綴後綴都要挖，而且優先級要高。
+//
+// 三條防誤判規則（缺一不可）：
+//   ① 詞幹長度門檻 —— un+it(2) 不算前綴（unit 不是 un+it）；
+//      teach+er 才算（stem 5 格）
+//   ② 詞幹必須含元音 —— 排除 cr+y 這種純輔音殘段
+//   ③ 反例表 —— really / water / family 這種「拼法像、其實不是」的詞
+//
+// 權重刻意高於語音層最高分（ou = 83）：
+//   構詞知識是「懂一個會一片」的知識，比單一拼寫模式更值得考。
+const PREFIXES = [
+  // 否定 / 反向 —— 教學價值最高（unhappy, dislike, impossible）
+  // 分數刻意壓在所有語音模式之上（最高 ou = 83），確保「有前綴先挖前綴」
+  { text: 'anti', weight: 88 },
+  { text: 'under', weight: 86 },
+  { text: 'inter', weight: 86 },
+  { text: 'super', weight: 86 },
+  { text: 'trans', weight: 86 },
+  { text: 'semi', weight: 86 },
+  { text: 'multi', weight: 86 },
+  { text: 'micro', weight: 86 },
+  { text: 'auto', weight: 86 },
+  { text: 'tele', weight: 86 },
+  { text: 'dis', weight: 88 },
+  { text: 'non', weight: 88 },
+  { text: 'mis', weight: 88 },
+  { text: 'pre', weight: 86 },
+  { text: 'sub', weight: 86 },
+  { text: 'un', weight: 88 },
+  { text: 'in', weight: 88 },
+  { text: 'im', weight: 88 },
+  { text: 'il', weight: 88 },
+  { text: 'ir', weight: 88 },
+  { text: 're', weight: 86 },
+  { text: 'de', weight: 82 },
+  { text: 'en', weight: 82 },
+  { text: 'ex', weight: 82 },
+  { text: 'co', weight: 80 },
+].sort((a, b) => b.text.length - a.text.length);
+
+/** 拼法像前綴、其實不是的詞（整詞比對，避免把 unit 拆成 un+it） */
+const PREFIX_BLOCK = new Set([
+  // un-
+  'unit', 'unite', 'union', 'unique', 'uniform', 'universe', 'university',
+  'uncle', 'under', 'unless', 'until', 'upon', 'urban', 'urgent', 'useful', 'usual',
+  // im- / in- / ir-
+  'image', 'imagine', 'imitate', 'impact', 'idea', 'ideal', 'item', 'iron',
+  'island', 'issue', 'into', 'invite',
+  // re-
+  'really', 'reason', 'ready', 'recent', 'region', 'recipe', 'regular', 'reign',
+  // de- / en- / ex- / co-
+  'decide', 'delay', 'dentist', 'december', 'enough', 'engine', 'enter',
+  'example', 'extra', 'come', 'cost', 'copy', 'colour', 'cover',
+]);
+
+const SUFFIXES = [
+  { text: 'ation', weight: 84 },
+  { text: 'ition', weight: 84 },
+  { text: 'ction', weight: 84 },
+  { text: 'ssion', weight: 84 },
+  { text: 'ment', weight: 80 },
+  { text: 'ness', weight: 80 },
+  { text: 'less', weight: 80 },
+  { text: 'able', weight: 80 },
+  { text: 'ible', weight: 80 },
+  { text: 'ship', weight: 78 },
+  { text: 'hood', weight: 78 },
+  { text: 'ward', weight: 78 },
+  { text: 'ing', weight: 80 },
+  { text: 'ful', weight: 80 },
+  { text: 'ous', weight: 78 },
+  { text: 'ive', weight: 78 },
+  { text: 'est', weight: 78 },
+  { text: 'ise', weight: 76 },
+  { text: 'ize', weight: 76 },
+  { text: 'ed', weight: 78 },
+  { text: 'er', weight: 80 },
+  { text: 'ly', weight: 78 },
+].sort((a, b) => b.text.length - a.text.length);
+
+/** 拼法像後綴、其實不是的詞（high-frequency 小學詞優先收錄） */
+const SUFFIX_BLOCK = new Set([
+  // -ing
+  'sing', 'king', 'ring', 'bring', 'thing', 'spring', 'string', 'swing',
+  'sting', 'cling', 'fling', 'wing', 'during', 'morning', 'evening',
+  // -ed
+  'bed', 'red', 'fed', 'led', 'shed', 'wed', 'need', 'seed', 'feed',
+  'speed', 'weed', 'hundred',
+  // -er（最容易被誤判：這些詞的 er 不是後綴）
+  'water', 'under', 'over', 'other', 'never', 'ever', 'after', 'answer',
+  'number', 'paper', 'finger', 'sister', 'brother', 'mother', 'father',
+  'winter', 'summer', 'dinner', 'supper', 'letter', 'butter', 'tiger',
+  // -est
+  'best', 'rest', 'test', 'west', 'nest', 'vest', 'pest', 'guest',
+  'forest', 'honest',
+  // -ly
+  'family', 'early', 'silly', 'belly', 'jelly', 'reply', 'apply', 'supply',
+  // -ive
+  'five', 'live', 'give', 'drive', 'arrive',
+]);
+
+/**
+ * 找出這個詞的構詞靶點（最多一個前綴 + 一個後綴）。
+ * 回傳的是「待轉成靶點」的描述，座標是詞內座標。
+ */
+function detectAffixes(w) {
+  const out = [];
+
+  // ── 前綴 ──
+  // 詞長至少 6：前綴 2 格 + 詞幹 4 格（unit / until 這類靠長度就排除了）
+  if (w.length >= 6 && !PREFIX_BLOCK.has(w)) {
+    for (const p of PREFIXES) {
+      if (!w.startsWith(p.text)) continue;
+      const stem = w.slice(p.text.length);
+      if (stem.length < 4) continue;          // ① 詞幹門檻
+      if (!/[aeiou]/.test(stem)) continue;    // ② 詞幹要有元音
+      out.push({
+        kind: 'prefix', text: p.text, weight: p.weight,
+        start: 0, end: p.text.length,
+        note: `前綴 ${p.text}-（${stem}）`,
+      });
+      break;
+    }
+  }
+
+  // ── 後綴 ──（複數 s / es 已在下面單獨排除，不進這張表）
+  if (!SUFFIX_BLOCK.has(w)) {
+    for (const s of SUFFIXES) {
+      if (!w.endsWith(s.text)) continue;
+      const stem = w.slice(0, -s.text.length);
+      if (stem.length < 3) continue;
+      if (!/[aeiou]/.test(stem)) continue;
+      // 前綴和後綴不能貼在一起把整個詞吃光（un+ly 這種）
+      if (out.length && stem.length <= out[0].end) continue;
+      out.push({
+        kind: 'suffix', text: s.text, weight: s.weight,
+        start: w.length - s.text.length, end: w.length,
+        note: `後綴 -${s.text}（${stem}）`,
+      });
+      break;
+    }
+  }
+
+  return out;
+}
+
+/**
+ * 複數 / 三單式的詞尾格位 —— 這些格子**不挖**。
+ *
+ * 老師的原話：「如果是複數形式，es 或者是 s 就不考這個填空，沒有意義」。
+ * 教學上成立：學生知道 cake 怎麼拼，複數加 s 是語法知識而不是拼寫難點，
+ * 挖它只會讓每一題都多一個「送分空」，稀釋真正要考的結構。
+ *
+ * 只排除「加出來的 s / es」，詞幹本身的字母照挖：
+ *   cakes  → 排除尾格 s，cake 的 a_e 照樣是靶點
+ *   boxes  → 排除 es 兩格，box 的 x 照樣是靶點
+ *   stories→ 排除 es 兩格，保留 i（y→i 的變化有教學價值）
+ */
+function pluralTailIndexes(w) {
+  const form = analyseWordForm(w);
+  const out = new Set();
+  if (!form.isPlural) return out;
+
+  const suf = form.suffix || '';
+  // 不規則複數（houses / cakes 之類在表裡的）suffix 是 '(irregular)'，
+  // 所以「尾字母是不是 s」要直接看字面，不能只信 suffix。
+  if (/s$/.test(w)) {
+    out.add(w.length - 1);
+    // cakes / houses / bikes：s 前面那個 e 是詞幹的靜音 e，
+    // 挖它同樣沒意義（而且會害 pool 只剩兩三個空可選）。
+    if (w[w.length - 2] === 'e') out.add(w.length - 2);
+  }
+  if (suf === 'es' || suf === 'ies' || suf === 'oes') out.add(w.length - 2);
+  return out;
+}
+
 /**
  * 一個詞的原子靶點池（詞內座標 + 短語偏移）。
  *
  * 規則：
+ *   · 前綴 / 後綴（構詞層）= 一個靶點，權重最高
  *   · 每個 scanPatterns() 命中的 pattern = 一個靶點（可跨 2–3 格）
  *   · 沒被任何 pattern 覆蓋的字母 = 一個單字母靶點
- *   · 每個字母最多屬於一個靶點（pattern 優先 —— 否則 ride 的 e 會
- *     既算 `_e_silent` 又算單字母，同一個字母被挖兩次）
+ *   · 複數尾部的 s / es 不成為靶點
+ *   · 每個字母最多屬於一個靶點（構詞 > pattern > 單字母）
  *
  * @param {string} word
  * @param {number} wordIndex  在短語中是第幾個「可挖詞」（單詞 = 0）
@@ -436,9 +621,33 @@ export function collectWordTargets(word, wordIndex = 0, offset = 0) {
 
   const out = [];
   const covered = new Set();
+  const noBlank = pluralTailIndexes(w);   // 複數尾：不挖
+
+  // ── ① 構詞層（前綴 / 後綴）先行，佔住座標 ──
+  for (const a of detectAffixes(w)) {
+    const idxs = rangeOf(a.start, a.end);
+    if (idxs.some(i => noBlank.has(i))) continue;
+    out.push({
+      key: `${wordIndex}:${a.start}-${a.end}`,
+      kind: 'affix',
+      pattern: a.text,
+      category: a.kind,            // 'prefix' | 'suffix'
+      note: a.note,
+      weight: a.weight,
+      blanks: idxs.map(i => offset + i),
+      span: { start: a.start, end: a.end, text: w.slice(a.start, a.end) },
+      wordIndex,
+      localStart: a.start,
+      ipa: null,
+      ambiguity: 16,
+      reliability: 'high',
+    });
+    idxs.forEach(i => covered.add(i));
+  }
 
   for (const p of scanPatterns(w)) {
     const idxs = rangeOf(p.start, p.end);
+    if (idxs.some(i => covered.has(i) || noBlank.has(i))) continue;
     out.push({
       key: `${wordIndex}:${p.start}-${p.end}`,
       kind: 'pattern',
@@ -458,7 +667,7 @@ export function collectWordTargets(word, wordIndex = 0, offset = 0) {
   }
 
   for (let i = 0; i < w.length; i++) {
-    if (covered.has(i)) continue;
+    if (covered.has(i) || noBlank.has(i)) continue;   // ★ 複數尾不補單字母靶點
     const s = singleLetterWeight(w, i);
     out.push({
       key: `${wordIndex}:${i}-${i + 1}`,
@@ -496,10 +705,16 @@ const SAME_CATEGORY_PENALTY = 3;    // 同一關已經有同類結構 → 降權
  *   mastery     {Map}     targetKey → 'pass' | 'fail'（本局記憶，可省略）
  *   exclude     {Set}     要跳過的 targetKey（靜態預覽用；做「關與關不重複」）
  *   mustInclude {string[]} 一定要被挖的 targetKey（重測用，見下）
+ *   rng         {function} 隨機來源（預設 Math.random；傳 () => 0 可還原成「永遠選最高分」）
+ *   jitter      {number}   分數接近到什麼程度就視為「一樣好」（預設 6 分）
  * @returns {Array} 被選中的靶點，按選取順序
  */
 export function composeFromPool(pool, opts = {}) {
   const { quota = 2, mastery = null, exclude = null, mustInclude = null, targets = null } = opts;
+  // ★ r72：每次開局要有一點不同，所以選擇改成「接近分數裡隨機」。
+  //   測試時傳固定 rng 就能重現，不必靠全域狀態。
+  const rand = typeof opts.rng === 'function' ? opts.rng : Math.random;
+  const jitter = Number.isFinite(opts.jitter) ? opts.jitter : 4;
 
   // ★ 2026-11-24（r68）：Easy 模式「每關只挖一個結構」。
   //
@@ -563,24 +778,46 @@ export function composeFromPool(pool, opts = {}) {
     // 按結構限量時（Easy）不看格子數，只看「已經挖了幾個結構」
     if (!byTargets && slots >= quota) break;
 
-    let best = null;
-    let bestScore = -Infinity;
-
+    // ★★ 2026-11-25（r72）：在「分數接近」的候選裡隨機挑，而不是永遠挑第一名。
+    //
+    //   老師的回饋：「現在第一輪每次都一樣」—— 因為舊版是純 argmax，
+    //   同一個詞每次都由同一個結構開場，學生玩第二遍就背下來了。
+    //
+    //   做法：先算全部候選的分數，取「最高分往下 jitter 分」以內的一批，
+    //   再從這批裡隨機抽一個。這樣：
+    //     · 前綴 / 後綴（86 分）仍然穩贏一般結構（76 分），優先級沒被破壞
+    //     · 同級別（例如 a、i、o 三個短母音）之間每次開局輪流出現
+    //   分數差距大於 jitter（預設 6）就不會亂跳 —— 隨機只在「差不多好」之間發生。
+    const cands = [];
     for (const t of pool) {
       if (exclude?.has?.(t.key)) continue;
       if (t.blanks.some(i => used.has(i))) continue;
       if ((perWord.get(t.wordIndex) ?? 0) >= maxPerWord) continue;
       // 已經選了東西 → 不准超過 quota+1（pattern 不能切半，留 1 格餘裕）
       if (!byTargets && slots > 0 && slots + t.blanks.length > quota + 1) continue;
-
-      const sc = scoreOf(t);
-      // 同分時「靠右優先」：詞首輔音最可預測，不該優先挖（序位效應）
-      const tie = sc === bestScore && best && t.localStart > best.localStart;
-      if (sc > bestScore || tie) { bestScore = sc; best = t; }
+      cands.push({ t, sc: scoreOf(t) });
     }
 
-    if (!best) break;
-    take(best);
+    if (!cands.length) break;
+
+    // 同分時「靠右優先」：詞首輔音最可預測，不該優先挖（序位效應）
+    cands.sort((a, b) => b.sc - a.sc || b.t.localStart - a.t.localStart);
+
+    const top = cands[0].sc;
+    // ★ 構詞靶點（前綴 / 後綴）一旦是最高分，就直接選它、不參與隨機 ——
+    //   老師要求「前綴後綴優先級比較高」，不能讓 83 分的 ou 靠運氣搶走 86 分的 under。
+    const band = cands[0].t.kind === 'affix' ? 0 : jitter;
+    const near = cands.filter(c => c.sc >= top - band);
+
+    // ★ r72：剩下的候選全都是「這一局已經答對過」的靶點時，寧可這一關少挖一個空，
+    //   也不要再考一次同一個結構 —— 老師的原話是「第二次要出第一次沒出過的題目」。
+    //   （以前會硬湊滿 quota，於是 L3 又冒出 L1 考過的 ea。）
+    if (picked.length && near.every(c => mastery?.get?.(c.t.key) === 'pass')) break;
+    const chosen = near.length > 1
+      ? near[Math.floor(rand() * near.length)]
+      : cands[0];
+
+    take(chosen.t);
   }
 
   return picked;
@@ -664,7 +901,8 @@ export function buildLevels(word, opts = {}) {
   const exclude = new Set();
 
   return Array.from({ length: count }, (_, i) => {
-    const picked = composeFromPool(pool, { quota, mastery, exclude });
+    // ★ 靜態預覽（後台、扣空顯示、測試）要可重現 → rng 固定成 0（永遠取最高分）
+    const picked = composeFromPool(pool, { quota, mastery, exclude, rng: () => 0 });
     picked.forEach(t => exclude.add(t.key));
     return levelFromTargets(picked, {
       level: i + 1,

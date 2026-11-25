@@ -226,7 +226,8 @@ function buildGroupedPhraseLevels(p, maxLevels = 3) {
 
   const exclude = new Set();
   return Array.from({ length: count }, (_, i) => {
-    const picked = composeFromPool(pool, { quota, exclude });
+    // ★ 靜態預覽用固定 rng，結果可重現（真正出題走 composeLevel，那裡才隨機）
+    const picked = composeFromPool(pool, { quota, exclude, rng: () => 0 });
     picked.forEach(t => exclude.add(t.key));
     return phraseLevelFrom(p, picked, i + 1);
   });
@@ -317,7 +318,7 @@ function resolveMustKeys(pool, mustInclude, mustIncludeProbes) {
  *   `oo` 跨 2 格仍然算一個空。
  */
 export function composeLevel(analysis, levelNo = 1, mastery = null, opts = {}) {
-  const { mustInclude = null, mustIncludeProbes = null, quota: quotaOverride = null, targets = null } = opts;
+  const { mustInclude = null, mustIncludeProbes = null, quota: quotaOverride = null, targets = null, rng = null } = opts;
   const text = analysis?.phrase ?? analysis?.word ?? '';
   const p = parsePhrase(text);
 
@@ -330,6 +331,7 @@ export function composeLevel(analysis, levelNo = 1, mastery = null, opts = {}) {
       quota: quotaOverride ?? quotaFor(w),
       targets,
       mastery,
+      rng,
       mustInclude: resolveMustKeys(pool, mustInclude, mustIncludeProbes),
     });
     const blanks = [...new Set(picked.flatMap(t => t.blanks))].sort((a, b) => a - b);
@@ -358,6 +360,7 @@ export function composeLevel(analysis, levelNo = 1, mastery = null, opts = {}) {
     quota: quotaOverride ?? quotaFor(p.contentWords.join(' ')),
     targets,
     mastery,
+    rng,
     mustInclude: resolveMustKeys(pool, mustInclude, mustIncludeProbes),
   });
   return phraseLevelFrom(p, picked, levelNo);
@@ -367,11 +370,12 @@ export function composeLevel(analysis, levelNo = 1, mastery = null, opts = {}) {
  * 一個詞/詞組總共幾關（只依靶點池，不依 mastery —— 一局內穩定）。
  *
  * @param {object} opts
- *   maxLevels {number} 上限（Difficult 是 3；Easy 固定 2 → 每詞只考兩遍）
+ *   maxLevels {number} 上限（Difficult 是 2；Easy 也固定 2 → 每詞只考兩遍）
+ *   minLevels {number} 下限（Difficult 用 2 —— 詞再短也要出現第二次）
  *   byTargets {boolean} 按「靶點個數」而非「格子數」算關數（Easy 用）
  */
 export function levelCountFor(analysis, opts = {}) {
-  const { maxLevels = 3, byTargets = false } = opts;
+  const { maxLevels = 3, byTargets = false, minLevels = 1 } = opts;
   const text = analysis?.phrase ?? analysis?.word ?? '';
   const p = parsePhrase(text);
 
@@ -381,14 +385,14 @@ export function levelCountFor(analysis, opts = {}) {
     // Easy：一關只挖一個結構 → 最多也就 pool.length 關
     if (byTargets) return Math.max(1, Math.min(maxLevels, pool.length));
     const total = pool.reduce((n, t) => n + t.blanks.length, 0);
-    return levelCountFromPool(total, quotaFor(p.headWord), maxLevels);
+    return Math.max(minLevels, levelCountFromPool(total, quotaFor(p.headWord), maxLevels));
   }
 
   const pool = collectPhrasePool(p);
   if (!pool.length) return 0;
   if (byTargets) return Math.max(1, Math.min(maxLevels, pool.length));
   const total = pool.reduce((n, t) => n + t.blanks.length, 0);
-  return levelCountFromPool(total, quotaFor(p.contentWords.join(' ')), maxLevels);
+  return Math.max(minLevels, levelCountFromPool(total, quotaFor(p.contentWords.join(' ')), maxLevels));
 }
 
 /**

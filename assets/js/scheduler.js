@@ -13,12 +13,26 @@ import { PCS_CONFIG } from './config.js';
 const CFG = PCS_CONFIG.experiment;
 
 /** 建立一個新的作答狀態 */
-export function initState(wordIds, { advanced = false, difficulty = 'difficult' } = {}) {
+export function initState(wordIds, { advanced = false, difficulty = 'difficult', seed = null } = {}) {
+  // ★ 2026-11-25（r72）：每局換一個種子。
+  //
+  //   舊版固定用 CFG.shuffleSeed = '2026a' —— 於是同一個班、同一份作業，
+  //   每個人每次開遊戲的詞序完全一樣，挖的位置也一樣（composeFromPool
+  //   以前是純 argmax）。老師的原話：「第一輪玩全都是一樣的」。
+  //
+  //   現在種子每局新生成，並存進 state.rngSeed：
+  //     · 同一局內同一個詞的同一關 → 由 (seed|wordId|level) 派生，
+  //       重新整理頁面不會換題（學生不能靠刷新刷題）
+  //     · 換一局 → 種子不同 → 詞序與挖空都重新洗
+  //   種子留在 state 裡，研究上仍然可追溯（知道這一局用什麼洗的）。
+  const rngSeed = seed ?? `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
   return {
     itemSeq: 0,
     // ★ 2026-11-24（r68）：這一局的難度。
     //   'easy'      → 每關只挖一個結構、每個詞只考兩遍（見 easy 旗標）
-    //   'difficult' → 原規則（每關 2–3 個空、最多 3 關、回溯重測）
+    //   'difficult' → 每關 2–3 個空、每個詞兩關（r73 起由 3 關改 2 關）、
+    //                 有錯的那一關在整局最後補考一次
     //   難度會寫進 exposure / sessions / rankBoard —— 排行榜要分欄，
     //   研究資料也要能分層分析（簡單組 vs 困難組）。
     difficulty: difficulty === 'easy' ? 'easy' : 'difficult',
@@ -58,25 +72,44 @@ export function initState(wordIds, { advanced = false, difficulty = 'difficult' 
     //   （retryQueue 的項目永遠「已到期」），整節課卡在這一局。
     served: 0,
     wordIds: [...wordIds],
-    order: shuffle(wordIds, CFG.shuffleSeed),
+    order: shuffle(wordIds, rngSeed),
+    rngSeed,                 // ★ r72：這一局的洗牌 / 抽題種子（可追溯）
     poolIndex: 0,
     stats: { probes: 0, correct: 0, totalMs: 0 },
   };
 }
 
-/** 可重現的洗牌（Mulberry32 + seed），確保實驗可重現 */
-export function shuffle(arr, seedStr) {
+/** 把字串種子壓成 32 位整數（FNV 風格混入） */
+function hashSeed(seedStr) {
   let h = 1779033703 ^ String(seedStr).length;
   for (let i = 0; i < String(seedStr).length; i++) {
     h = Math.imul(h ^ String(seedStr).charCodeAt(i), 3432918353);
     h = (h << 13) | (h >>> 19);
   }
-  const rnd = () => {
+  return h;
+}
+
+/**
+ * ★ 2026-11-25（r72）：可重現的隨機數產生器（Mulberry32）。
+ *
+ * 為什麼要「可重現」而不是直接用 Math.random：
+ *   出題時要隨機（每局不同），但**同一局內同一題**必須穩定 ——
+ *   學生重新整理頁面時不能換一組空格，否則刷兩次就能挑題。
+ *   所以用 (局種子|wordId|level) 派生一個固定的 rng。
+ */
+export function makeRng(seedStr) {
+  let h = hashSeed(seedStr);
+  return () => {
     h = Math.imul(h ^ (h >>> 16), 2246822507);
     h = Math.imul(h ^ (h >>> 13), 3266489909);
     h ^= h >>> 16;
     return (h >>> 0) / 4294967296;
   };
+}
+
+/** 可重現的洗牌（Mulberry32 + seed），確保同一局內詞序穩定、換局重新洗 */
+export function shuffle(arr, seedStr) {
+  const rnd = makeRng(seedStr);
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
@@ -251,11 +284,21 @@ export function recordAnswer(state, r) {
   //   第二遍就是補考（同一關、同一個結構）。如果補考又錯，
   //   不回佇列 —— 這個詞就結束了（記錄在案，重玩時再考）。
   //
-  //   play.html 傳 retryAllowed=false 表示「這一題本身就是補考」，
-  //   所以只在「第一次答錯」時排一次。用旗標而不是 state 內部計數，
-  //   是因為一關可能同時有多個 space（oo 有 2 格）→ 會連續呼叫多次，
-  //   內部計數會把第二格誤判成「已經補考過」。
-  if (r.retryAllowed === false) return { queued: false, mastered: null };
+  // ★★ r73：每個結構最多補考一次（Easy 與 Difficult 都一樣）。
+  //
+  //   play.html 用 retryAllowed=false 表示「這一題本身就是補考」，
+  //   所以只在「第一次答錯」時排一次。
+  //
+  //   ★ 這裡必須**順手把佇列裡的舊項刪掉**，不能只是 return。
+  //     舊版直接 return，(a) 補考又錯的那一項永遠留在 retryQueue 裡，
+  //     isFinished() 永遠是 false、nextItem() 又一直把它發出來 ——
+  //     學生同一個字被無限重考，直到撞上 maxItemsFor 的硬上限才結束。
+  //     (b) 那一項會在結算頁一直顯示成「待複習」，看起來像沒做完。
+  if (r.retryAllowed === false) {
+    const gi = state.retryQueue.findIndex(q => q.key === key);
+    if (gi >= 0) state.retryQueue.splice(gi, 1);
+    return { queued: false, mastered: null };
+  }
 
   // 錯了 → 找現有項目累積 failCount，否則新建
   let item = state.retryQueue.find(q => q.key === key);
@@ -386,11 +429,36 @@ export function isFinished(state) {
   return state.retryQueue.length === 0;
 }
 
-/** 進度百分比 */
-export function progress(state) {
-  const total = state.order.length + state.masteredWords.size;
-  if (total === 0) return 0;
-  return Math.min(100, Math.round((state.masteredWords.size / total) * 100));
+/**
+ * 進度百分比。
+ *
+ * ★ 2026-11-25（r73）：修一個「永遠走不到頭」的 bug。
+ *
+ *   舊公式：mastered / (order.length + mastered)。
+ *   分母裡又加了一次 mastered —— 學生每完成一個詞，分母也跟著長大，
+ *   所以 9 個詞全部做完時是 9/18 = 50%，進度條永遠停在半路。
+ *   老師的原話：「我都完成了是不是進度條應該走到頭了」。
+ *
+ *   新公式由呼叫端把「總關卡數 / 已完成關卡數」算好傳進來（plan）：
+ *     plan.total = Σ 每個詞的關卡數
+ *     plan.done  = Σ 每個詞已完成的關卡數（整詞完成就直接算滿）
+ *   這樣分母固定，只會單調往上，填完就是 100%。
+ *
+ *   沒傳 plan 時退回舊語義（每詞一關），舊呼叫端不會壞。
+ *
+ * @param {object} state
+ * @param {{total:number, done:number}|null} plan
+ */
+export function progress(state, plan = null) {
+  const total = Number(plan?.total) || 0;
+  if (total > 0) {
+    const done = Math.max(0, Number(plan?.done) || 0);
+    return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+  }
+  const fallback = state?.order?.length ?? 0;
+  if (!fallback) return 0;
+  const mastered = state?.masteredWords?.size ?? 0;
+  return Math.max(0, Math.min(100, Math.round((mastered / fallback) * 100)));
 }
 
 /** 統計摘要（寫進 sessions 文件） */

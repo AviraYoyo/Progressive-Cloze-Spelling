@@ -645,6 +645,43 @@
   box-shadow: 0 0 0 4px var(--orange-soft);
 }
 
+/* ★★ r73：格子不再自己接收鍵盤（readonly），所以「作用中」改看 .active。
+   樣式刻意跟 :focus 一模一樣 —— 學生看到的游標感完全沒變。 */
+.slot-input.active {
+  border-color: var(--orange);
+  background: #FFF8F2;
+  box-shadow: 0 0 0 4px var(--orange-soft);
+}
+
+/* 長按不要跳放大鏡 / 選字選單（iPad 上很干擾輸入） */
+.slot-input {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ★★ r73：鍵盤插座 —— 真正接收鍵盤的那一顆 input（說明見 play.html）。
+   1×1、透明、固定定位：不佔版面，但 Safari 一定認得它是可輸入元素。
+   font-size 必須 ≥16px，否則 iOS 聚焦時會自動把整頁放大。 */
+.kb-sink {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0;
+  color: transparent;
+  background: transparent;
+  caret-color: transparent;
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* 已有內容 → 收起虛線感，看起來像已填 */
 .slot-input.filled { background: #F5F7FF; }
 
@@ -901,8 +938,25 @@
   border-radius: var(--r);
   font-size: 16.5px;
   font-weight: 800;
+  /* ★ 2026-11-25：文字 + 重試符號一排居中 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   transition: transform .12s ease, box-shadow .12s ease;
 }
+
+/* 「再玩一次」尾端的 ↻：淡一點，滑過會轉一下（觸屏沒 hover 也不影響） */
+.btn-again .ico-again {
+  font-style: normal;
+  font-size: 18px;
+  line-height: 1;
+  opacity: .6;
+  /* ↻ 這個字形在字框裡偏上，往下推 1px 才會跟文字視覺居中 */
+  transform: translateY(1px);
+  transition: transform .35s ease, opacity .18s ease;
+}
+.btn-again:hover .ico-again { opacity: 1; transform: translateY(1px) rotate(-140deg); }
 
 /* 繼續挑戰困難：整張卡裡最想被按的那顆 → 用主色橙 */
 .btn-continue {

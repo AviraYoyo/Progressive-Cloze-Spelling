@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-24-r71';
+  var BUILD = '2026-11-25-r73';
   // ★ 公開給 module 與 console 用（版本排查時第一個要看的東西）
   window.__PCS_BUILD = BUILD;
 
@@ -50,7 +50,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-24-r71">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r73">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -1533,22 +1533,22 @@ setTimeout(function () {
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-24-r71';
-import { initFirebase } from './assets/js/firebase.js?v=2026-11-24-r71';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-24-r71';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-24-r71';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-24-r71';
-import { analyseItem } from './assets/js/phrase.js?v=2026-11-24-r71';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-24-r71';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r73';
+import { initFirebase } from './assets/js/firebase.js?v=2026-11-25-r73';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-25-r73';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-25-r73';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-25-r73';
+import { analyseItem } from './assets/js/phrase.js?v=2026-11-25-r73';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-25-r73';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-11-24-r71';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-24-r71';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-24-r71';
+} from './assets/js/assignments.js?v=2026-11-25-r73';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-25-r73';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-25-r73';
 import {
   shareUrl, sharePinFrom, buildCopyPayload, payloadBytes, MAX_COPY_BYTES, classifyImport,
-} from './assets/js/share.js?v=2026-11-24-r71';
+} from './assets/js/share.js?v=2026-11-25-r73';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
@@ -5349,7 +5349,7 @@ window.__pcsOnReady = async () => {
 
     <!-- ★ 2026-11-24：投影時全班直接掃這個碼進站，不必手打網址 -->
     <div class="pinbig-qr">
-      <img src="assets/img/qr-site.png?v=2026-11-24-r71"
+      <img src="assets/img/qr-site.png?v=2026-11-25-r73"
            alt="QR code that opens the student join page">
       <span>Scan to open the join page</span>
     </div>

@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-24-r71';
+  var BUILD = '2026-11-25-r73';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-24-r71">
-<link rel="stylesheet" href="assets/css/student.css?v=2026-11-24-r71">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r73">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-11-25-r73">
 </head>
 <body class="play-page">
 
@@ -65,6 +65,21 @@
     <span id="reviewLabel"></span>
   </div>
 </div>
+
+<!-- ★★ r73：鍵盤插座（iPad 鍵盤一直掉下來的解法）
+     放在 STAGE 外面，整頁只有一個，永遠不會因為換題被 innerHTML 沖掉。
+
+     為什麼要這樣做：格子本身是 <input>，輸完一格若程式把焦點移到下一格，
+     iOS Safari 會把它當成「新的聚焦請求」而把鍵盤收起來 → 學生每打一個字母
+     鍵盤就彈下去一次。改成「所有按鍵都打在這個永遠聚焦的小 input 上」，
+     格子只負責顯示，就完全沒有焦點轉移，鍵盤自然不會掉。
+
+     inputmode="latin" + lang="en" + 關掉自動修正／自動大寫：
+     盡量讓系統給英文鍵盤（iOS 不接受強制切換，所以輸入端另外過濾非英文字母）。 -->
+<input id="kbSink" class="kb-sink" type="text" inputmode="latin" lang="en"
+       autocomplete="off" autocapitalize="off" autocorrect="off"
+       spellcheck="false" enterkeyhint="done"
+       tabindex="-1" aria-hidden="true">
 
 <main class="stage" id="stage">
   <div class="loading"><div class="spinner"></div><span>Loading…</span></div>
@@ -124,25 +139,25 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-24-r71';
-import { diagnose } from './assets/js/blanking.js?v=2026-11-24-r71';
-import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-24-r71';
-import { emojiForWord } from './assets/js/emoji.js?v=2026-11-24-r71';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r73';
+import { diagnose } from './assets/js/blanking.js?v=2026-11-25-r73';
+import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-25-r73';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-11-25-r73';
 import {
   initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
   progress, summarise, serialise, deserialise,
-  masteryFor, setTargetMastery,
-} from './assets/js/scheduler.js?v=2026-11-24-r71';
-import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-24-r71';
-import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-24-r71';
-import { recordExposure } from './assets/js/exposure.js?v=2026-11-24-r71';
-import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-24-r71';
-import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-24-r71';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-24-r71';
+  masteryFor, setTargetMastery, makeRng,
+} from './assets/js/scheduler.js?v=2026-11-25-r73';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-25-r73';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-25-r73';
+import { recordExposure } from './assets/js/exposure.js?v=2026-11-25-r73';
+import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-25-r73';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-25-r73';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r73';
 import {
   scoreRound, loadMyScore, addScore, resetMyScore, fetchClassRanking, myRank, buildRankSession,
   subscribeClassRanking,
-} from './assets/js/leaderboard.js?v=2026-11-24-r71';
+} from './assets/js/leaderboard.js?v=2026-11-25-r73';
 
 const CFG = PCS_CONFIG.experiment;
 initLang();
@@ -209,7 +224,58 @@ const ADVANCED = !!student.advanced;
 let DIFF = null;
 const isEasy = () => DIFF === 'easy';
 /** 傳給 composeLevel / levelCountFor 的難度參數 */
-const levelOpts = () => (isEasy() ? { targets: 1, maxLevels: 2, byTargets: true } : {});
+//
+// ★ r73：Difficult 也改成「每個詞兩關」。
+//   之前是 3 關（每關 2–3 個空）—— 老師的意見是「difficult 也考兩次就好」。
+//   minLevels: 2 是為了短詞（例如 fly / cat 這種靶點池很小的詞）：
+//   levelCountFromPool 原本會算成只有 1 關，等於整個詞只出現一次。
+//
+//   補考由 retryQueue 負責：哪一關答錯，那一關就在整局最後再考一次
+//   （見 retryLevel 與 scheduler 的 retryAllowed=false）。
+const levelOpts = () => (isEasy()
+  ? { targets: 1, maxLevels: 2, byTargets: true }
+  : { maxLevels: 2, minLevels: 2 });
+
+/**
+ * ★ r73：這一局的「關卡總數」與「已完成關卡數」—— 進度條用。
+ *
+ * 舊進度條用 mastered/(words+mastered)，分母自己會長大，所以永遠走不到頭。
+ * 現在改成「關卡為單位」：
+ *   total = Σ 每個詞的關卡數（跟出題用的是同一個 levelCountFor）
+ *   done  = Σ 每個詞已完成的關卡數（整詞 master 了就記滿）
+ * 分母固定，只會單調往上；整局做完就是 100%。
+ *
+ * 這裡快取一份：updateChrome 每次作答都會呼叫，analyseItem 不便宜。
+ * key 含銀行內容與難度 → 換作業、換難度、換局都會自動重算。
+ */
+let planCache = null;
+function runPlan() {
+  const key = `${DIFF}|${ADVANCED ? 'adv' : 'prog'}|${bank.map(w => w.wordId).join(',')}`;
+  if (planCache && planCache.key === key) return planCache;
+
+  const perWord = new Map();
+  let total = 0;
+  for (const w of bank) {
+    const n = ADVANCED ? 1 : Math.max(1, levelCountFor(analyseItem(w.word), levelOpts()));
+    perWord.set(w.wordId, n);
+    total += n;
+  }
+  planCache = { key, perWord, total };
+  return planCache;
+}
+
+/**
+ * ★ 2026-11-25（r72）：這一題的隨機來源。
+ *
+ * 由 (局種子 | wordId | level) 派生 —— 也就是說：
+ *   · 換一局 → 種子變 → 詞序與挖空全部重新洗（老師要的「不要每次都一樣」）
+ *   · 同一局、同一個詞、同一關 → 種子固定 → 學生重新整理頁面不會換題
+ *
+ * 若直接用 Math.random，刷新一次就換一組空格，等於讓學生可以「刷題」。
+ */
+function rngFor(wordId, level) {
+  return makeRng(`${state?.rngSeed ?? 'norun'}|${wordId}|${level}`);
+}
 
 // ★★★ 未登入閘門（2026-10-16 補）
 //
@@ -604,6 +670,8 @@ function retryLevel(item, analysis, wordId) {
     mustIncludeProbes: probes,
     // Easy：補考也只挖那一個結構（不要補考時又冒出一堆空）
     targets: isEasy() ? 1 : null,
+    // ★ r72：同一局的同一題要穩定，用派生種子
+    rng: rngFor(wordId, item.level),
   });
 
   // 保險：要重測的那一格必須真的是空格，否則退回整組快照（極舊存檔才走這裡）
@@ -681,7 +749,8 @@ function render() {
     ? buildAdvancedLevel(wordObj.word)
     : (item.kind === 'retry')
       ? retryLevel(item, analysis, wordObj.wordId)
-      : composeLevel(analysis, level, masteryFor(state, wordObj.wordId), levelOpts());
+      : composeLevel(analysis, level, masteryFor(state, wordObj.wordId),
+          { ...levelOpts(), rng: rngFor(wordObj.wordId, level) });
 
   // ★ 最後一道保險： level 算成 0 或負數時會取到 undefined
   if (!lvl) {
@@ -764,7 +833,11 @@ function drawQuestion() {
       return `<span class="cell cell-sep" aria-hidden="true"></span>`;
     }
     const upper = blanks.includes(i)
-      ? `<input class="slot-input" type="text" inputmode="text"
+      // ★ r73：格子改成 readonly + inputmode="none" ——
+      //   真正的鍵盤在 #kbSink 上（見上面那段說明）。
+      //   格子只負責「顯示字母 + 被點」，所以它不該自己叫出鍵盤，
+      //   否則 iPad 上會出現「兩個輸入焦點打架、鍵盤一閃就收」。
+      ? `<input class="slot-input" type="text" inputmode="none" readonly
            maxlength="1" autocomplete="off" autocapitalize="off" autocorrect="off"
            spellcheck="false" data-index="${i}" aria-label="Letter ${i + 1}">`
       : `<span class="slot-given">${escapeHtml(ch)}</span>`;
@@ -930,47 +1003,137 @@ function fitClozeRow() {
   row.dataset.fitted = '1';
 }
 
-function wireQuestion() {
-  const inputs = [...STAGE.querySelectorAll('.slot-input')];
-  // ★ 記住學生目前停在哪一格 —— 點小喇叭後要還原到這裡，
-  //   否則會跳回第一格，學生等於被迫重新點一次。
-  let lastFocusedInput = inputs[0] ?? null;
+// ══════════════════════════════════════════════
+// ★★ r73：鍵盤插座（一個永遠聚焦的 input 吃掉所有按鍵）
+//
+// 為什麼要這樣做：
+//   格子本身是 <input>。輸完一格、程式把焦點移到下一格時，iOS Safari 會把
+//   這次 focus() 當成「新的聚焦請求」而收鍵盤 —— 學生只打了一個字母，
+//   鍵盤就彈下去（老師在 iPad 上遇到的正是這個）。
+//
+// 現在的分工：
+//   · 格子 readonly + inputmode="none" → 它不接收鍵盤，只負責顯示與「被點」
+//   · 點格子 = 移動「作用中的格子」（.active 橙框）+ 把焦點給 #kbSink
+//   · 所有按鍵都打在 #kbSink 上，由 JS 寫進對應格子
+//   · 焦點永遠停在同一顆元素上 → 鍵盤不會掉；
+//     直到整個詞的空都填完才 blur（老師要的「填完才消失」）
+// ══════════════════════════════════════════════
+let kbSlots = [];
+let kbActive = 0;
+let kbBound = false;
 
-  inputs.forEach((el, n) => {
-    el.addEventListener('input', () => {
-      // 只留一個英文字母，自動轉小寫
-      const v = el.value.replace(/[^a-zA-Z]/g, '').slice(-1);
-      el.value = v ? v.toLowerCase() : '';
-      el.classList.toggle('filled', !!el.value);
-      lastFocusedInput = el;
+const kbSinkEl = () => document.getElementById('kbSink');
+
+function kbFocus() {
+  const s = kbSinkEl();
+  if (!s) return;
+  try { s.focus({ preventScroll: true }); } catch { s.focus(); }
+}
+
+function kbMarkActive(n) {
+  if (!kbSlots.length) return;
+  kbActive = Math.max(0, Math.min(n, kbSlots.length - 1));
+  kbSlots.forEach((el, i) => el.classList.toggle('active', i === kbActive));
+  kbSlots[kbActive]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+const kbAllFilled = () => kbSlots.length > 0 && kbSlots.every(el => /[a-zA-Z]/.test(el.value));
+
+function kbWrite(n, ch) {
+  const el = kbSlots[n];
+  if (!el) return;
+  el.value = ch.toLowerCase();
+  el.classList.add('filled');
+  el.classList.remove('just-fixed');
+  delete el.dataset.fixed;
+}
+
+function kbClear(n) {
+  const el = kbSlots[n];
+  if (!el) return;
+  el.value = '';
+  el.classList.remove('filled', 'ok', 'just-fixed');
+  delete el.dataset.fixed;
+}
+
+/** 鍵盤不是英文時給一句提示（已判分、在看答案時不打擾） */
+function kbHintEnglish() {
+  if (answeredAll) return;
+  const diag = STAGE.querySelector('#diag');
+  if (!diag) return;
+  diag.className = 'diagnosis idle';
+  diag.textContent = t('game.englishOnly');
+}
+
+/** 插座整頁只有一個，事件只綁一次（換題時它不會被重建） */
+function kbBindOnce() {
+  if (kbBound) return;
+  const sink = kbSinkEl();
+  if (!sink) return;
+  kbBound = true;
+
+  sink.addEventListener('input', () => {
+    const raw = sink.value;
+    sink.value = '';                        // 插座永遠是空的，只做中轉
+
+    // ★ 中文 / emoji / 數字全部濾掉 —— 「限制英文輸入」就落在這一行
+    const letters = raw.replace(/[^a-zA-Z]/g, '');
+    if (!letters) {
+      if (raw.trim()) kbHintEnglish();
+      return;
+    }
+
+    for (const ch of letters) {
+      if (kbActive >= kbSlots.length) break;
+      const el = kbSlots[kbActive];
+      kbWrite(kbActive, ch);
       syncInline();
       checkReady();
+      if (answeredAll) checkCorrection(el);   // 看過答案後自己改對
+      if (kbActive < kbSlots.length - 1) kbMarkActive(kbActive + 1);
+    }
 
-      // ★★ 已看過答案（答錯後）又改對 → 立刻給綠框 + 正確音效。
-      //   研究上不算分、資料上不算對，但學生必須得到「你改對了」的回饋，
-      //   否則他會以為訂正是無效行為，下次不會再檢查自己寫的字。
-      if (answeredAll) checkCorrection(el);
+    // ★ 整個詞填完 → 才收鍵盤（老師要的行為）
+    if (kbAllFilled()) sink.blur();
+  });
 
-      // ★ 填完自動跳下一格 —— iPad 上少一次點擊
-      if (el.value && n < inputs.length - 1) inputs[n + 1].focus();
+  sink.addEventListener('keydown', (e) => {
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (kbSlots[kbActive]?.value) kbClear(kbActive);
+      else if (kbActive > 0) { kbMarkActive(kbActive - 1); kbClear(kbActive); }
+      syncInline(); checkReady();
+      return;
+    }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); kbMarkActive(kbActive - 1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); kbMarkActive(kbActive + 1); }
+  });
+
+  // 中文輸入法 / 貼上：能在鍵入前擋掉就先擋；
+  // composition 期間擋不住的部分，上面的 input 過濾仍會兜住，字不會進格子。
+  sink.addEventListener('beforeinput', (e) => {
+    if (e.inputType?.startsWith('insert') && e.data && !/[a-zA-Z]/.test(e.data)) {
+      e.preventDefault();
+      kbHintEnglish();
+    }
+  });
+}
+
+function wireQuestion() {
+  kbSlots = [...STAGE.querySelectorAll('.slot-input')];
+  kbMarkActive(0);
+  kbBindOnce();
+
+  kbSlots.forEach((el, n) => {
+    // 點格子：只換「作用中的格子」，鍵盤交給插座
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button != null && e.button > 0) return;
+      e.preventDefault();                   // 不要讓瀏覽器把焦點給 readonly 格子
+      kbMarkActive(n);
+      kbFocus();                            // 同一個手勢內 focus → iPad 才會彈鍵盤
     });
-
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace' && !el.value) {
-        e.preventDefault();
-        if (n > 0) { inputs[n - 1].focus(); inputs[n - 1].value = ''; inputs[n - 1].classList.remove('filled'); }
-        syncInline(); checkReady();
-      }
-      if (e.key === 'Enter') { e.preventDefault(); enterPressed = true; }
-      if (e.key === 'ArrowRight') { e.preventDefault(); inputs[Math.min(n + 1, inputs.length - 1)]?.focus(); }
-      if (e.key === 'ArrowLeft')  { e.preventDefault(); inputs[Math.max(n - 1, 0)]?.focus(); }
-    });
-
-    // iPad 上 focus 需要在觸控事件內才會彈鍵盤，這裡已經是同步流程
-    el.addEventListener('focus', () => {
-      lastFocusedInput = el;
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    });
+    // 用鍵盤 Tab 聚焦後按 Enter 也走這裡
+    el.addEventListener('click', () => { kbMarkActive(n); kbFocus(); });
   });
 
   // ★★ 小喇叭：點了之後必須把焦點還回輸入框。
@@ -1009,10 +1172,9 @@ function wireQuestion() {
       }
       setTimeout(() => speakBtn.classList.remove('speaking'), 2400);
 
-      // ★ 唸完（或立刻）把焦點放回學生原本在的那一格，鍵盤不會消失。
-      const back = lastFocusedInput || inputs[0];
-      back?.focus({ preventScroll: true });
-      try { back?.setSelectionRange?.(back.value.length, back.value.length); } catch {}
+      // ★ 唸完（或立刻）把焦點放回插座，鍵盤不會消失。
+      //   r73 起「目前在哪一格」記在 kbActive，不再靠 input 的 focus。
+      kbFocus();
     };
 
     speakBtn.addEventListener('pointerdown', (e) => {
@@ -1183,13 +1345,12 @@ function checkReady() {
 }
 
 function focusFirst() {
-  const first = STAGE.querySelector('.slot-input');
-  if (!first) return;
-  // 用 touch 事件觸發確保 iPad 彈鍵盤
-  requestAnimationFrame(() => {
-    first.focus({ preventScroll: false });
-    first.click?.();
-  });
+  if (!STAGE.querySelector('.slot-input')) return;
+  // ★ r73：焦點給插座，不再給格子。
+  //   注意 —— 換題是在作答後約 900ms 才發生，已經離開使用者手勢，
+  //   iOS 不會為此彈出鍵盤；學生點一下任何一格就會彈（而且之後不會再掉）。
+  kbMarkActive(0);
+  requestAnimationFrame(() => kbFocus());
 }
 
 // ★ Enter 統一在這裡處理一次。
@@ -1316,6 +1477,12 @@ async function submit() {
         correct: p.correct, expect: p.expect, got: p.got,
         phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
         spec: current.levelObj,
+        // ★ 這個空屬於哪個靶點 —— 補考時只重挖答錯的那個結構
+        targetKey: p.targetKey ?? null,
+        // ★ r73：每個結構只補考一次（Easy / Difficult 相同）。
+        //   這一題本身就是補考 → 再錯也不會無限重排，
+        //   scheduler 會順手把佇列裡那一項刪掉，這一局才結束得了。
+        retryAllowed: item.kind !== 'retry',
       });
     }
 
@@ -1403,9 +1570,9 @@ async function submit() {
       correct: p.correct, expect: p.expect, got: p.got,
       phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
       spec: current.levelObj, targetKey: p.targetKey ?? null,
-      // ★ Easy：每詞只考兩遍 → 補考（retry）再錯就不再排隊。
-      //   困難模式維持原樣（錯了就回頭再考，直到答對）。
-      retryAllowed: !(isEasy() && item.kind === 'retry'),
+      // ★ 答對不需要排隊，這個旗標只在答錯時才有意義；
+      //   留著是為了讓 recordAnswer 的參數形狀一致。
+      retryAllowed: item.kind !== 'retry',
     });
   }
 
@@ -1509,7 +1676,8 @@ function skip() {
       wordId: wordObj.wordId, level, probeIndex: p.i, correct: false,
       expect: p.expect, got: '', phonClass: p.phonClass, ms: p.ms, attemptNo: p.attemptNo,
       spec: current.levelObj, targetKey: p.targetKey,
-      retryAllowed: !(isEasy() && item.kind === 'retry'),
+      // ★ r73：跳過也算「第一次不會」，只排一次補考
+      retryAllowed: item.kind !== 'retry',
     });
   }
 
@@ -1533,14 +1701,42 @@ function skip() {
 // ══════════════════════════════════════════════
 // Chrome
 // ══════════════════════════════════════════════
+// ★ r73：進度條的兩個記憶變量
+//   progressRunSeed —— 這一局的種子。換局（Play again / 轉 difficulty）→ 歸零重走。
+//   progressShown   —— 目前畫在條上的百分比。只增不減：
+//                      有時候同一個詞會被重畫兩次（render + 作答），
+//                      寬度來回跳一下看起來就像「清空又重來」。
+let progressRunSeed = null;
+let progressShown = 0;
+
+/** 這一局走到幾 %（以「關卡」為單位，見 runPlan） */
+function progressPct() {
+  if (!state || !bank.length) return 0;
+  const plan = runPlan();
+  if (!plan.total) return 0;
+  let done = 0;
+  for (const [wordId, n] of plan.perWord) {
+    if (state.masteredWords?.has?.(wordId)) { done += n; continue; }
+    done += Math.min(state.levelProgress?.get?.(wordId) ?? 0, n);
+  }
+  return progress(state, { done, total: plan.total });
+}
+
 function updateChrome() {
   const my = loadMyScore(student.sessionId);
   document.getElementById('pointsNum').textContent = my.points;
-  document.getElementById('progressFill').style.width = progress(state) + '%';
-  document.getElementById('progressLabel').textContent =
-    t('game.progress', { n: Math.min(state.poolIndex + 1, state.order.length), total: state.order.length });
-  document.getElementById('reviewLabel').textContent =
-    state.retryQueue.length ? `${state.retryQueue.length} ${t('game.pendingReview', { n: '' }).trim()}` : '';
+
+  const seed = state?.rngSeed ?? '';
+  if (seed !== progressRunSeed) { progressRunSeed = seed; progressShown = 0; }
+  progressShown = Math.max(progressShown, progressPct());
+  document.getElementById('progressFill').style.width = progressShown + '%';
+
+  if (state) {
+    document.getElementById('progressLabel').textContent =
+      t('game.progress', { n: Math.min(state.poolIndex + 1, state.order.length), total: state.order.length });
+    document.getElementById('reviewLabel').textContent =
+      state.retryQueue.length ? `${state.retryQueue.length} ${t('game.pendingReview', { n: '' }).trim()}` : '';
+  }
   // ★ 自己的分數變了 → 常駐排行要立刻跟上（用快取重畫，不發網路請求）
   repaintRanking();
 }
@@ -1552,6 +1748,15 @@ async function renderResult() {
   const s = summarise(state);
   const my = loadMyScore(student.sessionId);
   playComplete();
+
+  // ★ r73：整局結束 → 進度條一定走到頭。
+  //   有兩種情況會讓「關卡完成數」差一點點：
+  //     · Easy 補考又錯 → 那個詞不再排隊，這一局就帶著它結束；
+  //     · 學生按 Skip → 那一關不算完成，但這一局已經結束了。
+  //   結算頁上還留著半條進度，看起來像「我沒做完」，所以這裡直接補滿。
+  progressShown = 100;
+  document.getElementById('progressFill').style.width = '100%';
+  document.getElementById('reviewLabel').textContent = '';
 
   // ★ Recap：把這一局練過的詞列出來，打勾的 = 完全掌握、◐ = 還沒全部過關。
   //   小學課堂結束時回顧一下很有用，也讓老師一眼看到誰還卡在哪。
@@ -1589,7 +1794,10 @@ async function renderResult() {
 
       <div class="result-actions">
         ${isEasy() ? `<button class="btn-continue" id="hardBtn" type="button" data-i18n="done.continueHard">Continue with Difficult</button>` : ''}
-        <button class="btn-again" id="againBtn" type="button" data-i18n="done.playAgain">Play again</button>
+        <button class="btn-again" id="againBtn" type="button">
+          <span data-i18n="done.playAgain">Play again</span>
+          <i class="ico-again" aria-hidden="true">↻</i>
+        </button>
         <button class="btn-done" id="doneBtn" type="button" data-i18n="done.back">Back</button>
       </div>
     </div>
