@@ -148,6 +148,34 @@ export async function initFirebase({ signIn = true } = {}) {
  *     `mod.db = db` 會直接拋 TypeError，joinAssignment 整條流程就死掉，
  *     症狀是學生端「Cannot reach the class. Check your connection.」
  */
+/**
+ * ★ 拿到（或補回）匿名身分。
+ *
+ * 為什麼要單獨抽出來：
+ *   舊版的匿名登入寫在 `if (!db) { ... }` 裡面，而且錯誤被 try/catch 吞掉。
+ *   只要第一次登入失敗（開頁瞬間網路還沒好、從 bfcache 回來時 token 掉了），
+ *   `db` 已經建好、下次呼叫就不會再試 → 這個分頁**永遠是「未登入」**，
+ *   於是 rankBoard 的讀取被 rules 拒絕、寫入也全部失敗
+ *   （症狀：排行榜突然變「Waiting for other pupils…」，而且不會自己好）。
+ *
+ * @returns {Promise<boolean>} true = 現在確實有匿名身分
+ */
+async function ensureAnonymous(au) {
+  if (au.currentUser?.isAnonymous) return true;
+  const { signInAnonymously } = await load('firebase-auth.js');
+  try {
+    // ★ 學生端必須是「匿名」身分。
+    //   若這台機器已有其他登入（例如老師後台），要先登出，
+    //   否則 rules 的 isAnonymous() 會拒絕所有學生的寫入。
+    if (au.currentUser) await au.signOut();
+    await signInAnonymously(au);
+    return true;
+  } catch (e) {
+    console.warn('[PCS] 匿名登入失敗（離線？或未啟用 Anonymous）', e?.message);
+    return false;
+  }
+}
+
 export async function initFirestore() {
   const mod = await load('firebase-firestore.js');
   const { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } = mod;
@@ -156,16 +184,9 @@ export async function initFirestore() {
     // ★ 一律用學生 app（outbox 只在學生端呼叫）
     const app = await getOrCreateApp(STUDENT_APP, firebaseConfig);
 
-    const { getAuth, signInAnonymously } = await load('firebase-auth.js');
-    const au = getAuth(app);
-    const stillAnonymous = au.currentUser && au.currentUser.isAnonymous;
-    if (!stillAnonymous) {
-      try {
-        if (au.currentUser) await au.signOut();
-        await signInAnonymously(au);
-      } catch { /* 離線時保留在佇列 */ }
-    }
-    auth = au;                        // ★ 記下來，currentAuthUid() 才讀得到
+    const { getAuth } = await load('firebase-auth.js');
+    auth = getAuth(app);
+    await ensureAnonymous(auth);
 
     try {
       db = initializeFirestore(app, {
@@ -174,6 +195,10 @@ export async function initFirestore() {
     } catch {
       db = getFirestore(app);      // 已被初始化過就退回
     }
+  } else if (!auth?.currentUser) {
+    // ★ 補救路徑：db 已經存在但沒有身分（第一次登入失敗、或 token 過期被清掉）。
+    //   不補這一段，這個分頁之後所有讀寫都會被 rules 拒絕，而且不會自癒。
+    await ensureAnonymous(auth ?? getAuth(await getOrCreateApp(STUDENT_APP, firebaseConfig)));
   }
 
   return { mod, db };

@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r73';
+  var BUILD = '2026-11-25-r75';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-11-25-r73">
-<link rel="stylesheet" href="./assets/css/student.css?v=2026-11-25-r73">
+<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-11-25-r75">
+<link rel="stylesheet" href="./assets/css/student.css?v=2026-11-25-r75">
 <style>
 .login-page {
   min-height: 100dvh;
@@ -120,19 +120,37 @@
 .tts-btn.tts-warn { border-color: #F59E0B; border-style: solid; background: #FEF3C7; }
 .tts-btn.tts-bad  { border-color: var(--wrong); border-style: solid; background: var(--wrong-dim); }
 
-/* ── 控制台入口 ── */
-.console-entry { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+/* ── 控制台入口（右上角，和語言鍵並排）──
+   ★ 2026-11-25：從表單底部搬到右上角。
+   原本是 Start 下面一個整寬、48px 的大按鈕，正好落在學生拇指
+   掃過的動線上，小一學生順手一點就進了教師登入頁。
+   現在縮成 36px 小藥丸、放到右上角，離開中央的 PIN / Start 視線焦點。 */
+.top-actions {
+  position: fixed; top: 14px; right: 16px; z-index: 60;
+  display: flex; align-items: center; gap: 8px;
+  margin-left: 0;   /* 蓋掉 student.css 給 .lang-slot 的 margin-left */
+}
 .console-btn {
-  display: flex; align-items: center; justify-content: center; gap: 9px;
-  width: 100%; height: 48px;
-  border-radius: var(--r);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 36px; padding: 0 13px;
+  border-radius: 18px;
   background: var(--card);
   border: 1.5px solid var(--line);
-  color: var(--ink-mid); font-size: 14.5px; font-weight: 700;
-  transition: background .18s, border-color .18s;
+  color: var(--ink-soft);
+  font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  opacity: .85;
+  transition: background .18s, border-color .18s, color .18s, opacity .18s;
 }
-.console-btn:hover { background: var(--card-alt); border-color: var(--line-mid); }
-.console-btn:active { transform: scale(.99); }
+.console-btn .cx-ico { font-size: 12px; line-height: 1; opacity: .8; }
+.console-btn:hover { background: var(--card-alt); border-color: var(--line-mid); color: var(--ink-mid); opacity: 1; }
+.console-btn:active { transform: scale(.97); background: var(--orange-soft); }
+
+/* 窄螢幕（手機）：只留鎖頭圖示，避免和置中的品牌標誌擠在一起 */
+@media (max-width: 430px) {
+  .console-btn { width: 36px; padding: 0; }
+  .console-btn .cx-label { display: none; }
+}
 </style>
 </head>
 
@@ -223,18 +241,17 @@ window.addEventListener('unhandledrejection', function (e) {
       </button>
     </div>
 
-    <!-- ── 老師控制台入口 ── -->
-    <div class="console-entry">
-      <a href="admin-login.html" class="console-btn" id="consoleBtn">
-        <span aria-hidden="true">🔐</span>
-        <span data-i18n="login.console">Teacher Console</span>
-      </a>
-    </div>
-
   </form>
 </div>
 
-<div class="lang-slot" id="langSlot" style="position:fixed;top:14px;right:16px;z-index:60"></div>
+<!-- ★ 右上角：教師控制台 + 語言切換（同一排小藥丸，遠離學生的操作動線） -->
+<div class="lang-slot top-actions" id="langSlot">
+  <a href="admin-login.html" class="console-btn" id="consoleBtn"
+     title="Teacher Console" aria-label="Teacher Console">
+    <span class="cx-ico" aria-hidden="true">🔐</span>
+    <span class="cx-label" data-i18n="login.console">Teacher Console</span>
+  </a>
+</div>
 
 <!-- ══════════════════════════════════════════════
      ★ 2026-11-20：音色選擇彈窗
@@ -269,10 +286,10 @@ window.addEventListener('unhandledrejection', function (e) {
 import {
   primeSpeech, speechStatus, speakSentence,
   listVoiceChoices, getVoicePref, setVoicePref, speakWithVoice,
-} from './assets/js/speech.js?v=2026-11-25-r73';
-import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-11-25-r73';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r73';
-import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-11-25-r73';
+} from './assets/js/speech.js?v=2026-11-25-r75';
+import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-11-25-r75';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r75';
+import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-11-25-r75';
 
 initLang();
 applyI18n(document);
@@ -403,6 +420,39 @@ const btn = document.getElementById('startBtn');
 const urlPin = pinFromLocation();
 if (urlPin) pinEl.value = urlPin;
 
+/**
+ * ★★ 2026-11-25：按「返回」回來時，把上次成功進入的 PIN / 班號 / 姓名填回去。
+ *
+ * 原本情況：學生玩到一半按上一頁 → 表單全部空白（Safari 從快取還原頁面時
+ * 不會保留輸入值）→ 要重新打一次 PIN，打錯就進不去，老師還得來幫忙。
+ * 現在直接沿用 sessionStorage 裡那次成功的登入（同一天內有效）。
+ *
+ * 為什麼是 12 小時而不是「當天」：跨午夜的課後練習不該突然要重打一次；
+ * 而隔天換課程時，多半會拿到新的 PIN 分享連結（那條會覆蓋這裡的值）。
+ * 注意：只填空的欄位 —— 網址帶 ?pin=1234 進來時以網址為準。
+ */
+try {
+  const last = JSON.parse(sessionStorage.getItem('pcs.student') || 'null');
+  const fresh = last?.joinedAt && Date.now() - last.joinedAt < 12 * 60 * 60 * 1000;
+  if (last?.pin && fresh) {
+    if (!pinEl.value) pinEl.value = normalisePin(last.pin).replace(/\D/g, '').slice(0, 4);
+    if (!classNoEl.value) classNoEl.value = String(last.classNo ?? '');
+    if (!nameEl.value) nameEl.value = String(last.studentName ?? '');
+    // 三欄都齊了 → 直接讓 Start 可以按（少一次點擊）
+    if (pinEl.value.length === 4 && classNoEl.value && nameEl.value) btn.focus({ preventScroll: true });
+  }
+} catch { /* 私密模式 / 壞資料：當作沒有上一次 */ }
+
+/**
+ * ★ 從上一頁（bfcache）返回時強制重載一次。
+ *
+ * 為什麼：Safari 會把整頁凍結再還原，但頁面裡的 Firebase 連線與 SDK 狀態
+ * 不會跟著復活 —— 學生按 Start 之後就卡在「Finding your class…」永遠不動
+ * （getDoc 的 promise 不會 resolve）。重載換一個乾淨的頁面，
+ * 欄位再由上面那段自動填回，對學生來說只是一個瞬間的閃動。
+ */
+window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
+
 const JOIN_ERRORS = {
   badpin:   'join.errBadPin',
   notfound: 'join.errNotFound',
@@ -447,7 +497,27 @@ form.addEventListener('submit', async (e) => {
   const original = btn.textContent;
   btn.textContent = t('join.finding');
 
-  const r = await joinAssignment({ pin, classNo, studentName });
+  /**
+   * ★★ 2026-11-25：加 12 秒上限。
+   *
+   * 為什麼：`joinAssignment` 內部是 Firestore 的 getDoc，它**沒有 timeout**。
+   * 從上一頁返回（Firestore 連線已死）或學校網路半斷時，這個 promise
+   * 永遠不會 resolve → 按鈕停在「Finding your class…」、學生以為當機
+   * （這就是老師說的「點 Start 會卡死」）。超時就當成網路錯誤，
+   * 至少把按鈕還回去，可以再試一次。
+   */
+  const withTimeout = (p, ms) => Promise.race([
+    p,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('join-timeout')), ms)),
+  ]);
+
+  let r;
+  try {
+    r = await withTimeout(joinAssignment({ pin, classNo, studentName }), 12000);
+  } catch (err) {
+    console.warn('[PCS] join 超時／失敗', err?.message);
+    r = { ok: false, error: 'network' };
+  }
 
   if (!r.ok) {
     btn.disabled = false;

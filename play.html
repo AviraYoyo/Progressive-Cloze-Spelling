@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r73';
+  var BUILD = '2026-11-25-r75';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r73">
-<link rel="stylesheet" href="assets/css/student.css?v=2026-11-25-r73">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r75">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-11-25-r75">
 </head>
 <body class="play-page">
 
@@ -139,25 +139,25 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r73';
-import { diagnose } from './assets/js/blanking.js?v=2026-11-25-r73';
-import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-25-r73';
-import { emojiForWord } from './assets/js/emoji.js?v=2026-11-25-r73';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r75';
+import { diagnose } from './assets/js/blanking.js?v=2026-11-25-r75';
+import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-25-r75';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-11-25-r75';
 import {
   initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
   progress, summarise, serialise, deserialise,
   masteryFor, setTargetMastery, makeRng,
-} from './assets/js/scheduler.js?v=2026-11-25-r73';
-import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-25-r73';
-import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-25-r73';
-import { recordExposure } from './assets/js/exposure.js?v=2026-11-25-r73';
-import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-25-r73';
-import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-25-r73';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r73';
+} from './assets/js/scheduler.js?v=2026-11-25-r75';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-25-r75';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-25-r75';
+import { recordExposure } from './assets/js/exposure.js?v=2026-11-25-r75';
+import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-25-r75';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-25-r75';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r75';
 import {
   scoreRound, loadMyScore, addScore, resetMyScore, fetchClassRanking, myRank, buildRankSession,
   subscribeClassRanking,
-} from './assets/js/leaderboard.js?v=2026-11-25-r73';
+} from './assets/js/leaderboard.js?v=2026-11-25-r75';
 
 const CFG = PCS_CONFIG.experiment;
 initLang();
@@ -685,10 +685,22 @@ function retryLevel(item, analysis, wordId) {
 let lastAutoSpokeWordId = null;
 
 function render() {
-  if (isFinished(state)) { renderResult(); return; }
-
-  const item = nextItem(state);
-  if (!item) { renderResult(); return; }
+  // ★★ 2026-11-25：先看有沒有「上一次發出去、還沒作答」的那一題（續玩用）。
+  //
+  //   為什麼需要：advance / retry 的題目是從 levelQueue / retryQueue **取出即消失**，
+  //   state 裡沒有任何「這一題正在作答」的紀錄。於是學生做到第 2 關按返回、
+  //   再進來（頁面重新載入）時，三個佇列都是空的 → isFinished() 成立 →
+  //   直接跳出結算頁（成績單寫「完成 0 個詞」），練習整個被吃掉。
+  //   現在把當前題目存進 state.pendingItem，重新載入時先接回它。
+  const resumed = state.pendingItem || null;
+  let item = resumed;
+  if (item) {
+    state.pendingItem = null;          // 只接回一次，之後照正常流程
+  } else {
+    if (isFinished(state)) { renderResult(); return; }
+    item = nextItem(state);
+    if (!item) { renderResult(); return; }
+  }
 
   const wordObj = bank.find(w => w.wordId === item.wordId);
   if (!wordObj) { state.poolIndex++; render(); return; }
@@ -791,7 +803,13 @@ function render() {
   answeredAll = false;
   questionStart = performance.now();
 
-  state.exposureCount.set(wordObj.wordId, (state.exposureCount.get(wordObj.wordId) ?? 0) + 1);
+  // ★ 續玩接回來的那一題，不能再算一次曝光（第一次 render 時已經算過）
+  if (!resumed) {
+    state.exposureCount.set(wordObj.wordId, (state.exposureCount.get(wordObj.wordId) ?? 0) + 1);
+  }
+
+  // ★ 記住「這一題正在作答」—— 頁面被重新載入時要能接回同一題（見函式開頭）
+  state.pendingItem = item;
 
   drawQuestion();
   updateChrome();
@@ -1030,12 +1048,90 @@ function kbFocus() {
   try { s.focus({ preventScroll: true }); } catch { s.focus(); }
 }
 
-function kbMarkActive(n) {
+function kbMarkActive(n, opts = {}) {
   if (!kbSlots.length) return;
   kbActive = Math.max(0, Math.min(n, kbSlots.length - 1));
   kbSlots.forEach((el, i) => el.classList.toggle('active', i === kbActive));
-  kbSlots[kbActive]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (opts.reveal !== false) kbReveal(kbActive, opts.smooth !== false);
 }
+
+/**
+ * ★★ 2026-11-25：把第 n 格滾到「鍵盤彈起後還看得見」的位置。
+ *
+ * 為什麼不能用 scrollIntoView：
+ *   它把元素置中在**版面視窗**（layout viewport）。但 iOS 彈鍵盤時版面視窗
+ *   不會變、變矮的只是**可視區**（visual viewport）—— 置中的結果正好落在
+ *   鍵盤後面。老師看到的現象就是：點第一個空，畫面完全不動；
+ *   等到開始打字，Safari 為了露出聚焦元素才把頁面往上推。
+ *
+ * 所以改成用 visualViewport 算出「真正看得到的那一塊」，
+ * 把格子放在那塊由上往下 30% 的位置 —— 格子露出、題目與圖也還在上方。
+ */
+function kbReveal(n = kbActive, smooth = true) {
+  const el = kbSlots[n];
+  if (!el) return;
+  const vv = window.visualViewport;
+  const scrollY = window.scrollY || window.pageYOffset || 0;
+  const rect = el.getBoundingClientRect();
+  const elDocTop = rect.top + scrollY;                 // 文件座標
+
+  const viewTop = vv ? vv.pageTop : scrollY;           // 可見區的文件頂端
+  const viewH = vv ? vv.height : window.innerHeight;   // 可見區高度（鍵盤已扣掉）
+  const wantTop = viewTop + Math.max(12, viewH * 0.3) - rect.height / 2;
+
+  const delta = elDocTop - wantTop;
+  if (Math.abs(delta) < 10) return;                    // 已經在理想位置，不要抖一下
+
+  const top = Math.max(0, scrollY + delta);
+  try { window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' }); }
+  catch { window.scrollTo(0, top); }                   // 舊 iOS 不支援 options
+}
+
+/**
+ * ★★ 2026-11-25：鍵盤彈起時，給頁面「可以往上捲的空間」。
+ *
+ * 這是 iOS 上真正的關鍵。Safari 彈鍵盤時 **innerHeight 不變、變矮的是
+ * visualViewport**；如果文件本身沒有超出版面高度（docHeight == innerHeight），
+ * 那 window.scrollTo() 根本無效 —— 只有「聚焦元素的系統自動捲動」會動一下，
+ * 這正是老師看到的「打了字才往上翻」。
+ *
+ * 作法：偵測到鍵盤佔了畫面高度 → 暫時在 body 底部補等高的 padding，
+ * 讓文件變高、可捲動；鍵盤收起就還原。捲動量交給 kbReveal 算。
+ */
+function kbInset() {
+  const vv = window.visualViewport;
+  if (!vv) return 0;
+  return Math.max(0, Math.round(window.innerHeight - vv.height));
+}
+
+let kbPadNow = 0;
+function syncKbSpace() {
+  const inset = kbInset();
+  // 小於 100px 當成「沒有鍵盤」（iPad 分屏 / 瀏覽器工具列也會讓高度浮動）
+  const want = inset > 100 ? inset + 32 : 0;
+  if (want === kbPadNow) return kbPadNow > 0;
+  kbPadNow = want;
+  document.body.style.paddingBottom = want ? `${want}px` : '';
+  return want > 0;
+}
+
+/**
+ * 鍵盤彈起 / 收起時，可視區高度會變 —— 這一刻才知道「真正看得到」的範圍，
+ * 所以在這裡先補可捲動空間、再校一次位置（不帶動畫，避免和系統的捲動打架）。
+ */
+(function watchViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  let t = 0;
+  vv.addEventListener('resize', () => {
+    clearTimeout(t);
+    // 先讓 padding 生效（文件變高）→ 下一帧才捲得動
+    syncKbSpace();
+    t = setTimeout(() => {
+      if (document.activeElement === kbSinkEl()) kbReveal(kbActive, false);
+    }, 120);
+  });
+})();
 
 const kbAllFilled = () => kbSlots.length > 0 && kbSlots.every(el => /[a-zA-Z]/.test(el.value));
 
@@ -1131,9 +1227,12 @@ function wireQuestion() {
       e.preventDefault();                   // 不要讓瀏覽器把焦點給 readonly 格子
       kbMarkActive(n);
       kbFocus();                            // 同一個手勢內 focus → iPad 才會彈鍵盤
+      // ★ 鍵盤彈起要 250–350ms，彈完可視區才變矮 → 那時再校一次位置。
+      //   （visualViewport 的 resize 也會觸發，這裡是沒有該 API 的舊機兜底）
+      setTimeout(() => { if (document.activeElement === kbSinkEl()) kbReveal(n, false); }, 380);
     });
     // 用鍵盤 Tab 聚焦後按 Enter 也走這裡
-    el.addEventListener('click', () => { kbMarkActive(n); kbFocus(); });
+    el.addEventListener('click', () => { kbMarkActive(n); kbFocus(); kbReveal(n); });
   });
 
   // ★★ 小喇叭：點了之後必須把焦點還回輸入框。
@@ -1349,7 +1448,10 @@ function focusFirst() {
   // ★ r73：焦點給插座，不再給格子。
   //   注意 —— 換題是在作答後約 900ms 才發生，已經離開使用者手勢，
   //   iOS 不會為此彈出鍵盤；學生點一下任何一格就會彈（而且之後不會再掉）。
-  kbMarkActive(0);
+  // ★ 2026-11-25：換題時不主動捲動（reveal:false）—— 那時鍵盤還沒彈，
+  //   用「可視區 30%」去算會把圖片與句子推到畫面外；
+  //   真正需要捲動的時機是「學生點格子、鍵盤彈起後」，交給 kbReveal。
+  kbMarkActive(0, { reveal: false });
   requestAnimationFrame(() => kbFocus());
 }
 
@@ -1376,6 +1478,10 @@ document.addEventListener('keydown', (e) => {
 // ══════════════════════════════════════════════
 async function submit() {
   if (answeredAll) return;
+  // ★ 這一題已作答 → 不再是「未答完的當前題目」（render() 開頭的續玩邏輯）
+  //   否則在換下一題前重新載入，會把同一題再出一次。
+  state.pendingItem = null;
+  saveState();
   const { wordObj, blanks, target, sentence, level, item, targetWord, analysis } = current;
   const diag = STAGE.querySelector('#diag');
   const btn = STAGE.querySelector('#submitBtn');
@@ -1655,6 +1761,9 @@ async function submit() {
 function skip() {
   if (answeredAll) return;
   answeredAll = true;
+  // ★ 同 submit：這一題算答過了，不要讓重新載入再接回同一題
+  state.pendingItem = null;
+  saveState();
 
   const { wordObj, level, item, blanks, targetWord } = current;
   // ★ 逐格對到自己所屬的靶點（一關可能有多個 pattern）
@@ -1732,8 +1841,11 @@ function updateChrome() {
   document.getElementById('progressFill').style.width = progressShown + '%';
 
   if (state) {
+    // ★ 2026-11-25：這裡原本是 poolIndex + 1，跟題目上方的 Word X of Y
+    //   （用 poolIndex）差一號 —— 同一頁會同時出現「Word 7 of 9」與「Word 6 of 9」。
+    //   poolIndex 在 nextItem() 裡已經先 ++（代表這個詞已發出），所以不加。
     document.getElementById('progressLabel').textContent =
-      t('game.progress', { n: Math.min(state.poolIndex + 1, state.order.length), total: state.order.length });
+      t('game.progress', { n: Math.min(state.poolIndex, state.order.length), total: state.order.length });
     document.getElementById('reviewLabel').textContent =
       state.retryQueue.length ? `${state.retryQueue.length} ${t('game.pendingReview', { n: '' }).trim()}` : '';
   }
@@ -1934,6 +2046,16 @@ function pinRanking() {
 }
 
 // 開啟抽屜時訂閱：任何同學提交新成績，畫面會即時刷新
+//
+// ★★ 2026-11-25：加上自動重試。
+//   原本 onSnapshot 一失敗就永遠停在那裡 —— 學生看到的是「Waiting for other
+//   pupils…」永遠不動（他明明有分數），而且不會自己好。
+//   實際原因通常是「這個分頁還沒有匿名身分」：開頁瞬間網路沒好、或從上一頁
+//   返回時 token 掉了 → rules 直接拒絕 → 監聽死掉。
+//   現在失敗會重訂閱 3 次（間隔 1.5s / 3s / 4.5s），並把提示寫在面板裡。
+let rankRetryCount = 0;
+let rankRetryTimer = 0;
+
 async function startRanking() {
   if (rankUnsub || rankStarting) return;   // 已在訂閱中
   rankStarting = true;
@@ -1952,16 +2074,31 @@ async function startRanking() {
   body.innerHTML = `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`;
   if (errEl) errEl.hidden = true;
   const unsub = await subscribeClassRanking(student, (ranking) => {
+    rankRetryCount = 0;
     if (errEl) errEl.hidden = true;
     drawRanking(ranking);
     applyI18n(document.getElementById('rankDrawer'));
   }, (err) => {
-    // ★ 讀取失敗提示：保全則沒貼 / 網路抖動時，學生至少知道排名暫時看不到
+    console.warn('[PCS] 排名即時訂閱失敗（不影響作答）', err?.message);
     if (errEl) {
       errEl.hidden = false;
       errEl.textContent = '⚠ ' + t('rank.readFail');
     }
-    console.warn('[PCS] 排名即時訂閱失敗（不影響作答）', err?.message);
+    // 面板還停在「Waiting…」時把原因寫進去 —— 否則學生只看到一片空白，
+    // 會以為「排名被清掉了」（實際上八成只是讀取暫時失敗）。
+    if (!lastRanking && body) {
+      body.innerHTML = `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`
+        + `<div class="rank-empty">⚠ ${escapeHtml(t('rank.readFail'))}</div>`;
+    }
+    // 自動重試（最多 3 次）—— 多半是身分還沒建立好，重訂閱時會再跑一次匿名登入
+    if (rankRetryCount < 3 && !drawer.hidden) {
+      rankRetryCount += 1;
+      clearTimeout(rankRetryTimer);
+      rankRetryTimer = setTimeout(() => {
+        stopRanking();
+        startRanking();
+      }, 1500 * rankRetryCount);
+    }
   });
   rankStarting = false;
   // 訂閱初始化期間使用者已關掉抽屜 → 立即取消，避免殘留監聽
@@ -1971,12 +2108,25 @@ async function startRanking() {
 
 // 關閉抽屜時取消訂閱，離開後不再監聽
 function stopRanking() {
+  clearTimeout(rankRetryTimer);
   if (rankUnsub && typeof rankUnsub === 'function') {
     try { rankUnsub(); } catch { /* noop */ }
   }
   rankUnsub = null;
   rankStarting = false;
 }
+
+// ★ 網路回來時重新訂閱一次（iPad 從飛航／待機回來最常見的「榜突然空了」）
+window.addEventListener('online', () => {
+  if (!drawer.hidden) { stopRanking(); rankRetryCount = 0; startRanking(); }
+});
+
+// ★ 從上一頁（bfcache）返回時，Firestore 的監聽通常已經斷了 → 重訂閱一次。
+//   不整頁重載：那會把學生正在打的字母吃掉；這裡只修排行，不動作答狀態。
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted) return;
+  if (!drawer.hidden) { stopRanking(); rankRetryCount = 0; startRanking(); }
+});
 
 // 手動刷新（備用）：立即拉一次最新資料，疊加在即時訂閱之上
 async function refreshRankingOnce() {
