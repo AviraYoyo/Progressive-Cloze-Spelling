@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r75';
+  var BUILD = '2026-11-25-r76';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r75">
-<link rel="stylesheet" href="assets/css/student.css?v=2026-11-25-r75">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r76">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-11-25-r76">
 </head>
 <body class="play-page">
 
@@ -139,25 +139,25 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r75';
-import { diagnose } from './assets/js/blanking.js?v=2026-11-25-r75';
-import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-25-r75';
-import { emojiForWord } from './assets/js/emoji.js?v=2026-11-25-r75';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r76';
+import { diagnose } from './assets/js/blanking.js?v=2026-11-25-r76';
+import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-25-r76';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-11-25-r76';
 import {
   initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
   progress, summarise, serialise, deserialise,
   masteryFor, setTargetMastery, makeRng,
-} from './assets/js/scheduler.js?v=2026-11-25-r75';
-import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-25-r75';
-import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-25-r75';
-import { recordExposure } from './assets/js/exposure.js?v=2026-11-25-r75';
-import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-25-r75';
-import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-25-r75';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r75';
+} from './assets/js/scheduler.js?v=2026-11-25-r76';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-25-r76';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-25-r76';
+import { recordExposure } from './assets/js/exposure.js?v=2026-11-25-r76';
+import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-25-r76';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-25-r76';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r76';
 import {
   scoreRound, loadMyScore, addScore, resetMyScore, fetchClassRanking, myRank, buildRankSession,
-  subscribeClassRanking,
-} from './assets/js/leaderboard.js?v=2026-11-25-r75';
+  subscribeClassRanking, todayKey,
+} from './assets/js/leaderboard.js?v=2026-11-25-r76';
 
 const CFG = PCS_CONFIG.experiment;
 initLang();
@@ -1851,6 +1851,8 @@ function updateChrome() {
   }
   // ★ 自己的分數變了 → 常駐排行要立刻跟上（用快取重畫，不發網路請求）
   repaintRanking();
+  // ★ r76：順便把「目前為止」的分數送上去，讓同學的排行榜也即時跳動
+  queueLiveRank();
 }
 
 // ══════════════════════════════════════════════
@@ -1944,10 +1946,11 @@ async function renderResult() {
  *   只帶公開欄位的集合。
  */
 async function pushRankSession() {
+  let ctx = null;
   try {
     const { initFirestore, currentAuthUid } = await import('./assets/js/firebase.js');
     const { mod, db } = await initFirestore();
-    const { doc, setDoc, writeBatch } = mod;
+    const { doc, writeBatch } = mod;
     const my = loadMyScore(student.sessionId);
     const payload = buildRankSession({
       student, score: my,
@@ -1961,36 +1964,135 @@ async function pushRankSession() {
     if (!authUid) { console.warn('[PCS] 尚未登入，略過 session 上傳'); return; }
     const serverTs = Date.now();
 
-    const batch = writeBatch(db);
-    // ① 完整 session（老師專屬）
-    batch.set(doc(db, PCS_CONFIG.collections.sessions, `${student.sessionId}_r${runNo()}`), {
-      ...payload, authUid, serverTs,
-    });
-    // ② 公開排名板（學生可讀）—— 只帶排行榜上看得見的欄位
-    //   ★ doc id 帶局號：同一天重玩不會覆蓋上一局的成績，
-    //     排行榜取「最高分那一局」→ points 與 accuracy 一定同一局。
-    batch.set(doc(db, PCS_CONFIG.collections.rankBoard, `${student.sessionId}_r${runNo()}`), {
-      sessionId: payload.sessionId,
-      assignmentId: payload.assignmentId,
-      pin: payload.pin,
-      className: payload.className,
-      classNo: payload.classNo,
-      studentName: payload.studentName,
-      dateKey: payload.dateKey,          // ★ 排行榜只比今天
-      // ★ r68：排行榜分上下兩欄（簡單 / 困難），靠這個欄位分組。
-      //   同一個學生兩個難度都玩過 → 兩篇 doc、兩欄都出現。
-      difficulty: payload.difficulty,
-      points: payload.points,
-      accuracy: payload.accuracy,
-      wordsMastered: payload.wordsMastered,
-      endedAt: payload.endedAt,
-      authUid, serverTs,
-    });
-    await batch.commit();
+    ctx = { db, doc, writeBatch, payload, authUid, serverTs };
+    await commitRankBatch(ctx);
   } catch (e) {
-    console.warn('[PCS] session 上傳失敗（不影響成績）', e?.message);
+    // ★ r76：學生端已改成「只放記憶體」的快取（見 firebase.js），
+    //   所以離線或連線抖一下時這次寫入不會自己排隊等重連 —— 這裡補一次重試，
+    //   免得學生剛好在那一刻斷線就丟了最終成績。
+    console.warn('[PCS] session 上傳失敗，2.5 秒後重試一次', e?.message);
+    await new Promise(r => setTimeout(r, 2500));
+    try {
+      if (ctx) await commitRankBatch(ctx);
+    } catch (e2) {
+      console.warn('[PCS] session 重試仍失敗（分數已在本機）', e2?.message);
+    }
   }
 }
+
+/** 建一個新的 batch 並送出（重試時要重新建，失敗的 batch 不能重用） */
+async function commitRankBatch({ db, doc, writeBatch, payload, authUid, serverTs }) {
+  const batch = writeBatch(db);
+  // ① 完整 session（老師專屬）
+  batch.set(doc(db, PCS_CONFIG.collections.sessions, `${student.sessionId}_r${runNo()}`), {
+    ...payload, authUid, serverTs,
+  });
+  // ② 公開排名板（學生可讀）—— 只帶排行榜上看得見的欄位
+  //   ★ doc id 帶局號：同一天重玩不會覆蓋上一局的成績，
+  //     排行榜取「最高分那一局」→ points 與 accuracy 一定同一局。
+  //   ★★ r76：結算這一份多一個 `_f` 後綴（final）。
+  //     因為作答途中會先寫一份同名（不帶 _f）的即時分數；若結算時寫回同一份，
+  //     在「只准 create、不准 update」的舊安全規則下會被拒絕 → 成績整個丟掉。
+  //     分成兩個 doc 之後，結算永遠是一次 create，新舊規則都寫得進去；
+  //     排行榜讀取時會依「同一位學生取最高分」合併，所以只會顯示最終那份。
+  batch.set(doc(db, PCS_CONFIG.collections.rankBoard, `${student.sessionId}_r${runNo()}_f`), {
+    sessionId: payload.sessionId,
+    assignmentId: payload.assignmentId,
+    pin: payload.pin,
+    className: payload.className,
+    classNo: payload.classNo,
+    studentName: payload.studentName,
+    dateKey: payload.dateKey,          // ★ 排行榜只比今天
+    // ★ r68：排行榜分上下兩欄（簡單 / 困難），靠這個欄位分組。
+    //   同一個學生兩個難度都玩過 → 兩篇 doc、兩欄都出現。
+    difficulty: payload.difficulty,
+    points: payload.points,
+    accuracy: payload.accuracy,
+    wordsMastered: payload.wordsMastered,
+    endedAt: payload.endedAt,
+    authUid, serverTs,
+  });
+  await batch.commit();
+}
+
+// ══════════════════════════════════════════════
+// 即時分數（r76）
+// ══════════════════════════════════════════════
+/**
+ * ★★ 2026-11-25（r76）：作答途中就把分數寫上排行榜。
+ *
+ * 為什麼：原本 rankBoard 只在**整局結束**才寫一次。所以一場 20 分鐘的課，
+ *   前 19 分鐘學生看到的排行榜永遠是空的 —— 老師的原話是
+ *   「依舊看不到實時的 Class Ranking，我看不到自己的分數」。
+ *
+ * 作法：每答完一題就叫一次（節流 4 秒），寫一份「局號」doc；
+ *   結算時另外寫一份 `…_r<n>_f`（見 pushRankSession 的說明）。
+ *   排行榜讀取時會依學生合併、取最高分那一筆 → 同一頁只會看到他最新的成績。
+ *
+ * ⚠ Firestore rules：這一招需要「本人可以更新自己那一列」的規則
+ *   （firestore.rules 的 rankBoard.update，r76 已放寬）。
+ *   若學校的 Firestore 還是舊規則，第一次寫入之後的更新會被拒絕 →
+ *   這裡會收到 permission-denied，直接關掉即時上報（每個分頁只會嘗試一次）；
+ *   結算時寫的是另一份 `_f` 文件、屬於 create，照樣寫得進去，
+ *   功能只是退回「結束才有分數」，不會壞。
+ */
+let liveRankTimer = 0;
+let liveRankLast = 0;
+let liveRankOff = false;
+
+function queueLiveRank() {
+  if (liveRankOff || !state) return;
+  if (liveRankTimer) return;
+  const wait = Math.max(0, 4000 - (Date.now() - liveRankLast));
+  liveRankTimer = setTimeout(() => { liveRankTimer = 0; pushLiveRank(); }, wait);
+}
+
+async function pushLiveRank() {
+  if (liveRankOff || !state) return;
+  // 一題都還沒答 → 不要寫（避免在榜上留下一筆 0 分的紀錄）
+  if (!state.stats || !state.stats.probes) return;
+  liveRankLast = Date.now();
+  try {
+    const { initFirestore, currentAuthUid } = await import('./assets/js/firebase.js');
+    const { mod, db } = await initFirestore();
+    const { doc, setDoc } = mod;
+    const authUid = currentAuthUid();
+    if (!authUid) return;
+    const my = loadMyScore(student.sessionId);
+    const s = state.stats;
+    const accuracy = s.probes ? +(s.correct / s.probes).toFixed(4) : 0;
+    await setDoc(doc(db, PCS_CONFIG.collections.rankBoard, `${student.sessionId}_r${runNo()}`), {
+      sessionId: student.sessionId,
+      assignmentId: student.assignmentId ?? null,
+      pin: student.pin ?? null,
+      className: student.className ?? '',
+      classNo: student.classNo,
+      studentName: student.studentName,
+      dateKey: todayKey(),
+      difficulty: state.difficulty === 'easy' ? 'easy' : 'difficult',
+      points: my.points,
+      accuracy,
+      wordsMastered: state.masteredWords?.size ?? 0,
+      endedAt: Date.now(),
+      authUid,
+      serverTs: Date.now(),
+      syncState: 'pending',
+    }, { merge: true });
+  } catch (e) {
+    const m = e?.message || '';
+    if (/permission|insufficient|denied/i.test(m)) {
+      liveRankOff = true;
+      console.info('[PCS] 即時分數上報被 rules 拒絕（結算時仍會上傳）', m);
+    }
+  }
+}
+
+// 離開頁面（切到別的分頁、按返回、關掉）前，盡量把目前分數寫上去 ——
+// 讓「玩到一半就跑掉」的學生也留在榜上。
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') pushLiveRank();
+});
+window.addEventListener('pagehide', () => { pushLiveRank(); });
 
 // ══════════════════════════════════════════════
 // Leaderboard
@@ -2055,10 +2157,13 @@ function pinRanking() {
 //   現在失敗會重訂閱 3 次（間隔 1.5s / 3s / 4.5s），並把提示寫在面板裡。
 let rankRetryCount = 0;
 let rankRetryTimer = 0;
+let rankFirstTimer = 0;    // 等「第一個快照」的計時器（見 startRanking 尾端）
+let rankGotSnap = false;   // 這次訂閱有沒有收到過任何快照
 
 async function startRanking() {
   if (rankUnsub || rankStarting) return;   // 已在訂閱中
   rankStarting = true;
+  rankGotSnap = false;
   const body = document.getElementById('rankBody');
   const errEl = document.getElementById('rankErr');
 
@@ -2071,9 +2176,20 @@ async function startRanking() {
     return;
   }
 
-  body.innerHTML = `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`;
+  // ★★ 2026-11-25（r76）：先把自己畫上去，不等網路。
+  //
+  //   原本這裡先寫 "Waiting for other pupils…"，然後等 Firestore 第一個快照
+  //   才第一次 drawRanking()。只要那個快照沒來（身分還沒好、iPad 待機醒來、
+  //   連線卡住），面板就永遠那句「Waiting…」——
+  //   學生／老師看到的就是「排行榜全沒了、我連自己的分數都沒有」。
+  //   現在本機資料先畫：自己一定在榜上，別人的分數到了再疊上去。
+  if (lastRanking) drawRanking(lastRanking.map(s => ({ ...s })));
+  else drawRanking([]);
   if (errEl) errEl.hidden = true;
+
   const unsub = await subscribeClassRanking(student, (ranking) => {
+    rankGotSnap = true;
+    clearTimeout(rankFirstTimer);
     rankRetryCount = 0;
     if (errEl) errEl.hidden = true;
     drawRanking(ranking);
@@ -2083,12 +2199,6 @@ async function startRanking() {
     if (errEl) {
       errEl.hidden = false;
       errEl.textContent = '⚠ ' + t('rank.readFail');
-    }
-    // 面板還停在「Waiting…」時把原因寫進去 —— 否則學生只看到一片空白，
-    // 會以為「排名被清掉了」（實際上八成只是讀取暫時失敗）。
-    if (!lastRanking && body) {
-      body.innerHTML = `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`
-        + `<div class="rank-empty">⚠ ${escapeHtml(t('rank.readFail'))}</div>`;
     }
     // 自動重試（最多 3 次）—— 多半是身分還沒建立好，重訂閱時會再跑一次匿名登入
     if (rankRetryCount < 3 && !drawer.hidden) {
@@ -2104,11 +2214,28 @@ async function startRanking() {
   // 訂閱初始化期間使用者已關掉抽屜 → 立即取消，避免殘留監聽
   if (drawer.hidden) { try { unsub(); } catch { /* noop */ } return; }
   rankUnsub = unsub;
+
+  // ★ 看門狗：onSnapshot 正常會在 1 秒內送第一個快照。
+  //   7 秒還沒來，代表這個監聽已經卡住（Safari 從 bfcache 回來、iPad 待機
+  //   喚醒後最常見）—— 它不會報錯，只會**永遠不回來**，所以只能自己重訂閱。
+  clearTimeout(rankFirstTimer);
+  rankFirstTimer = setTimeout(() => {
+    if (rankGotSnap || drawer.hidden) return;
+    if (rankRetryCount >= 2) {
+      if (errEl) { errEl.hidden = false; errEl.textContent = '⚠ ' + t('rank.readFail'); }
+      return;
+    }
+    rankRetryCount += 1;
+    console.warn('[PCS] 排行榜 7 秒內沒有快照 → 重新訂閱');
+    stopRanking();
+    startRanking();
+  }, 7000);
 }
 
 // 關閉抽屜時取消訂閱，離開後不再監聽
 function stopRanking() {
   clearTimeout(rankRetryTimer);
+  clearTimeout(rankFirstTimer);
   if (rankUnsub && typeof rankUnsub === 'function') {
     try { rankUnsub(); } catch { /* noop */ }
   }
@@ -2156,15 +2283,24 @@ function drawRanking(ranking) {
   // 這一局目前為止的正確率 —— 本機分數一定要配本機正確率，
   // 否則「自己」那一列會出現「300 分 / 0%」這種看起來像壞掉的組合。
   const myAcc = state?.stats?.probes ? state.stats.correct / state.stats.probes : 0;
-  const myDiff = DIFF ? normDiff(DIFF) : 'difficult';
+  // ★ 還沒選難度時 myDiff = null：這時顯示「我在困難組第 1 名」是錯的
+  //   （他根本還沒選），所以先不放自己，選完難度就會出現在正確那一欄。
+  const myDiff = DIFF ? normDiff(DIFF) : null;
 
   const isMe = s => String(s.classNo) === String(student.classNo) && s.name === student.studentName;
 
   // 本機分數只併進「我目前這個難度」那一欄
-  const me = ranking.find(s => isMe(s) && normDiff(s.difficulty) === myDiff);
+  const me = myDiff ? ranking.find(s => isMe(s) && normDiff(s.difficulty) === myDiff) : null;
   if (me) {
     if (my.points >= me.points) { me.points = my.points; me.accuracy = myAcc; }
-  } else if (my.points > 0) {
+  } else if (myDiff) {
+    // ★★ 2026-11-25（r76）：一律把自己放進榜上。
+    //
+    //   原本的條件是 `my.points > 0` —— 剛開局、或這一局還沒拿到分數時，
+    //   榜上就只有 Firestore 回來的那幾筆（通常一筆都沒有），
+    //   畫面永遠停在 "Waiting for other pupils…"，學生看不到自己的分數，
+    //   老師也會問「他明明在玩，人呢？」。
+    //   現在即使 0 分也顯示自己（★ 標記），至少知道「我在榜上、分數會動」。
     ranking.push({
       classNo: student.classNo, name: student.studentName,
       difficulty: myDiff, points: my.points, accuracy: myAcc, rank: 0,
@@ -2183,6 +2319,8 @@ function drawRanking(ranking) {
     g.rows.forEach((s, i) => { s.rank = i + 1; });
   }
 
+  // ★ 正常情況下上面一定把自己放進榜了 → 這裡只在「連自己都沒有」時才會走到
+  //   （例如還沒 join 完就被開起來）。留著是為了不要畫出一個空白的框。
   if (!ranking.length) {
     body.innerHTML = `<div class="rank-loading">${escapeHtml(t('rank.waiting'))}</div>`;
     return;

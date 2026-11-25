@@ -182,11 +182,18 @@ service cloud.firestore {
              'points', 'accuracy', 'authUid'
            ]);
 
-      // 學生只能補寫自己的（且只准改 syncState）
+      // ★★ 2026-11-25（r76）：改成「本人可更新自己的那一列」。
+      //
+      //   為什麼：排行榜現在會**作答途中**就上報分數（play.html 的 pushLiveRank，
+      //   每 4 秒最多一次），同一份 doc 會被寫很多次；原本只准改
+      //   syncState / serverTs，這些中途更新全被拒 → 榜上只有「已經玩完」的人。
+      //
+      //   安全性沒有變差：create 本來就允許學生寫入任意的 points / accuracy，
+      //   所以放寬 update 不會多出任何他能做的事 —— 差別只在「同一列改幾次」。
+      //   仍然嚴格限制：只能改 authUid 等於自己的那一列。
       allow update: if isStudentWrite()
         && resource.data.authUid == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['syncState', 'serverTs']);
+        && request.resource.data.authUid == request.auth.uid;
 
       allow delete: if teacherOrList();
     }

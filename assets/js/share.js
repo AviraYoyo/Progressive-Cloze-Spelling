@@ -55,6 +55,41 @@ export function normaliseItems(items) {
 }
 
 /**
+ * ★ 2026-11-25（r76）：複製時給一個不撞名的標題。
+ *
+ * 老師的用法：同一份作業可能從不同同事的連結收進來好幾次，
+ * 全部叫「Unit 1 Dictation Scope」在列表上根本分不出來。
+ * 這裡照 Windows 複製資料夾的習慣編號：
+ *   Unit 1 → Unit 1 (2) → Unit 1 (3) …
+ *
+ * @param {string} base     原本的標題
+ * @param {string[]} taken  我帳號下已經用掉的標題
+ */
+export function uniqueTitle(base, taken = []) {
+  const title = String(base || '').trim() || 'Untitled assignment';
+  const used = new Set((Array.isArray(taken) ? taken : [])
+    .map(x => String(x || '').trim().toLowerCase()));
+  if (!used.has(title.toLowerCase())) return title;
+
+  // 已經存在 "Title (n)" 的話，從最大的 n 往上加，而不是從 2 重新數
+  const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${esc} \\((\\d+)\\)$`, 'i');
+  let maxN = 1;
+  for (const t of used) {
+    const m = re.exec(String(t).trim());
+    if (m) maxN = Math.max(maxN, Number(m[1]));
+  }
+
+  let n = Math.max(2, maxN + 1);
+  let candidate = `${title} (${n})`;
+  while (used.has(candidate.toLowerCase())) {
+    n += 1;
+    candidate = `${title} (${n})`;
+  }
+  return candidate;
+}
+
+/**
  * 組出複製品的 payload（不含 pin / createdAt —— 那兩個由寫入端決定）。
  *
  * 刻意「逐欄位挑」而不是 `{...src}`：
@@ -65,13 +100,15 @@ export function normaliseItems(items) {
  *
  * @param {object} src      來源作業（listAssignments 的形狀）
  * @param {object} teacher  { uid, name?, email? }
+ * @param {object} [opts]
+ * @param {string} [opts.title]  自訂標題（重複匯入時用來加編號）
  */
-export function buildCopyPayload(src, teacher) {
+export function buildCopyPayload(src, teacher, opts = {}) {
   const items = normaliseItems(src?.items);
   const advanced = src?.advanced === true;
 
   return {
-    title: src?.title ?? '',
+    title: String(opts.title || src?.title || '').trim(),
     phase: src?.phase || 'practice',
     className: '',
     teacherId: teacher?.uid ?? null,

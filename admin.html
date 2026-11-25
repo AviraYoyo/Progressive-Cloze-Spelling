@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r75';
+  var BUILD = '2026-11-25-r76';
   // ★ 公開給 module 與 console 用（版本排查時第一個要看的東西）
   window.__PCS_BUILD = BUILD;
 
@@ -50,7 +50,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r75">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r76">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -1533,22 +1533,22 @@ setTimeout(function () {
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r75';
-import { initFirebase } from './assets/js/firebase.js?v=2026-11-25-r75';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-25-r75';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-25-r75';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-25-r75';
-import { analyseItem } from './assets/js/phrase.js?v=2026-11-25-r75';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-25-r75';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r76';
+import { initFirebase } from './assets/js/firebase.js?v=2026-11-25-r76';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-25-r76';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-25-r76';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-25-r76';
+import { analyseItem } from './assets/js/phrase.js?v=2026-11-25-r76';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-25-r76';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-11-25-r75';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-25-r75';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-25-r75';
+} from './assets/js/assignments.js?v=2026-11-25-r76';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-25-r76';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-25-r76';
 import {
-  shareUrl, sharePinFrom, buildCopyPayload, payloadBytes, MAX_COPY_BYTES, classifyImport,
-} from './assets/js/share.js?v=2026-11-25-r75';
+  shareUrl, sharePinFrom, buildCopyPayload, payloadBytes, MAX_COPY_BYTES, classifyImport, uniqueTitle,
+} from './assets/js/share.js?v=2026-11-25-r76';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
@@ -1623,9 +1623,11 @@ scheduleShareBoot();
   const gate = document.getElementById('authGate');
   gate.style.display = 'grid';
 
-  // ★ 醒目提示：本次改了 firestore.rules（teachers 的 update 規則），
-  //   沒重新Publish 的話 Repair 按鈕會失敗。使用者看到一次就夠了。
-  const RULES_CHANGED = 'r5';
+  // ★ 醒目提示：本次改了 firestore.rules（r76：rankBoard 允許本人更新自己那一列，
+  //   排行榜才能「作答途中就即時跳分」）。沒重新 Publish 的話，
+  //   分數會在整局結束時才出現（功能不會壞，只是不即時）。
+  //   使用者看到一次就夠了。
+  const RULES_CHANGED = 'r6';
   if (localStorage.getItem('pcs.rulesSeen') !== RULES_CHANGED) {
     localStorage.setItem('pcs.rulesSeen', RULES_CHANGED);
     // 不打斷流程，但進 admin.html 後立刻說明
@@ -1634,9 +1636,11 @@ scheduleShareBoot();
       if (!t) return;
       t.hidden = false;
       t.innerHTML =
-        '<b>One-time setup:</b> the Security Rules changed. Firebase Console → '
-        + '<b>Firestore Database → Rules</b> → paste the latest <code>firestore.rules</code> '
-        + '→ <b>Publish</b>. Needed once; otherwise "Repair my access" in Account cannot work.';
+        '<b>One-time setup:</b> the Security Rules changed (live class ranking). '
+        + 'Firebase Console → <b>Firestore Database → Rules</b> → paste the latest '
+        + '<code>firestore.rules</code> → <b>Publish</b>. '
+        + 'Without it everything still works — scores just appear when a pupil finishes '
+        + 'instead of live.';
       t.querySelector('button')?.addEventListener('click', () => { t.hidden = true; });
     }, 1200);
   }
@@ -3848,22 +3852,24 @@ async function handleSharePin(pin) {
   }
 
   // ③ 我之前已經複製過這一源作業
+  //
+  // ★★ 2026-11-25（r76）：改成「照樣再存一份」。
+  //
+  //   原本這裡只給一個「Open my copy」，等於老師拿到同一條連結就再也存不進來
+  //   （例如想為另一班開一份、或想保留原本那份的舊資料）。
+  //   現在直接複製第二份，標題照 Windows 的習慣編號：
+  //   “Unit 1 Dictation Scope” → “Unit 1 Dictation Scope (2)” → (3) …
   if (verdict.kind === 'copied') {
     const existing = verdict.copy;
+    const nextTitle = uniqueTitle(src.title, (window.__pcsMineAssignments || []).map(a => a.title));
     showImportDialog({
-      title: 'You have already added this',
-      sub: `You added “${src.title}” earlier as PIN ${existing.pin}.`,
-      note: 'Your copy keeps its own results — they are not shared with the original.',
-      primary: {
-        label: 'Open my copy',
-        action: () => {
-          closeImportDialog();
-          showDispatch(existing);
-          openPinModal(String(existing.pin), existing.title);
-        },
-      },
-      neutral: { label: 'Close', action: closeImportDialog },
+      title: 'Saving another copy…',
+      sub: `You already have “${src.title}” as PIN ${existing.pin}. `
+         + `A second, independent copy will be saved as “${nextTitle}”.`,
+      note: 'Each copy has its own PIN and its own results.',
+      neutral: { label: 'Cancel', action: closeImportDialog },
     });
+    runImport(src);          // 不再多問一次 —— 老師點連結就是要這份作業
     return;
   }
 
@@ -4003,7 +4009,8 @@ async function runImport(src) {
     await loadAssignmentList({ extra: created });
     closeImportDialog();                 // 含清掉 ?share=
     showDispatch(created);               // 直接把「Send this to your class」換成新 PIN
-    showMsg(`Added. Your copy has PIN ${created.pin}.`, 'success', 7000);
+    // ★ r76：訊息裡帶上（可能被編號的）標題，老師才知道存成了哪一份
+    showMsg(`Added “${created.title}” · PIN ${created.pin}.`, 'success', 7000);
   } catch (e) {
     console.error('[PCS] 複製作業失敗', e);
     impEl.Msg.textContent = friendlyCopyError(e);
@@ -4018,8 +4025,13 @@ async function copyAssignment(src) {
   const me = window.__pcsTeacher;
   if (!me?.uid) throw new Error('NOT_SIGNED_IN');
 
+  // ★ r76：標題不撞名 —— 同名的已經在我帳號裡就加編號（Unit 1 → Unit 1 (2)）。
+  //   老師常常從不同同事的連結收同一份作業，列表上全部同名會分不出來。
+  const myTitles = (window.__pcsMineAssignments || []).map(a => a.title);
+  const title = uniqueTitle(src?.title, myTitles);
+
   // ★ 逐欄位挑選的邏輯在 assets/js/share.js（純函式，可在 node 裡單測）
-  const payload = buildCopyPayload(src, me);
+  const payload = buildCopyPayload(src, me, { title });
 
   // Firestore 單文檔上限 1 MB。圖片是 base64，30 個詞有機會超。
   const bytes = payloadBytes(payload);
@@ -5137,10 +5149,37 @@ asgRoot.addEventListener('click', async (e) => {
   if (act === 'show') {
     const all = await listAssignments();
     const a = all.find(x => x.id === id);
-    if (a) {
-      showDispatch(a);
-      openPinModal(a.pin, a.title);
+    if (!a) return;
+
+    // ★★ 2026-11-25（r76）：按 Play 就自動把課程重新打開。
+    //
+    //   老師按 Play 一定是「等一下要給學生玩」。但課程若是關閉狀態，
+    //   學生輸入 PIN 只會拿到 "This assignment is closed."，
+    //   老師還得先按一次 Reopen 再按 Play —— 白白多一步，而且很容易忘記。
+    //   現在按 Play 等於同時按 Reopen，並且在按鈕上反映出來。
+    if (a.active === false) {
+      try {
+        const { db } = await initFirebase({ signIn: false });
+        const fs = await import('./assets/vendor/firebase/firebase-firestore.js');
+        await fs.updateDoc(
+          fs.doc(db, PCS_CONFIG.collections.assignments, a.id || id),
+          { active: true },
+        );
+        a.active = true;
+        const tgl = row.querySelector('[data-act=toggle]');
+        if (tgl) {
+          tgl.textContent = 'Close';
+          tgl.classList.add('danger');
+        }
+        showMsg(`“${a.title}” reopened — students can join with PIN ${a.pin}.`, 'success');
+      } catch (e) {
+        console.warn('[PCS] auto-reopen failed', e?.message);
+        showMsg('Could not reopen this assignment: ' + friendlyish(e), 'error');
+      }
     }
+
+    showDispatch(a);
+    openPinModal(a.pin, a.title);
     return;
   }
 
@@ -5349,7 +5388,7 @@ window.__pcsOnReady = async () => {
 
     <!-- ★ 2026-11-24：投影時全班直接掃這個碼進站，不必手打網址 -->
     <div class="pinbig-qr">
-      <img src="assets/img/qr-site.png?v=2026-11-25-r75"
+      <img src="assets/img/qr-site.png?v=2026-11-25-r76"
            alt="QR code that opens the student join page">
       <span>Scan to open the join page</span>
     </div>

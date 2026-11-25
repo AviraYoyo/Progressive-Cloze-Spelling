@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r75';
+  var BUILD = '2026-11-25-r76';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-11-25-r75">
-<link rel="stylesheet" href="./assets/css/student.css?v=2026-11-25-r75">
+<link rel="stylesheet" href="./assets/css/tokens.css?v=2026-11-25-r76">
+<link rel="stylesheet" href="./assets/css/student.css?v=2026-11-25-r76">
 <style>
 .login-page {
   min-height: 100dvh;
@@ -286,10 +286,10 @@ window.addEventListener('unhandledrejection', function (e) {
 import {
   primeSpeech, speechStatus, speakSentence,
   listVoiceChoices, getVoicePref, setVoicePref, speakWithVoice,
-} from './assets/js/speech.js?v=2026-11-25-r75';
-import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-11-25-r75';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r75';
-import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-11-25-r75';
+} from './assets/js/speech.js?v=2026-11-25-r76';
+import { unlockAudio, playTap } from './assets/js/sfx.js?v=2026-11-25-r76';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r76';
+import { joinAssignment, pinFromLocation, isValidPinFormat, normalisePin } from './assets/js/assignments.js?v=2026-11-25-r76';
 
 initLang();
 applyI18n(document);
@@ -421,7 +421,7 @@ const urlPin = pinFromLocation();
 if (urlPin) pinEl.value = urlPin;
 
 /**
- * ★★ 2026-11-25：按「返回」回來時，把上次成功進入的 PIN / 班號 / 姓名填回去。
+ * ★★ 2026-11-25（r76）：按「返回」回來時，把上次成功進入的 PIN / 班號 / 姓名填回去。
  *
  * 原本情況：學生玩到一半按上一頁 → 表單全部空白（Safari 從快取還原頁面時
  * 不會保留輸入值）→ 要重新打一次 PIN，打錯就進不去，老師還得來幫忙。
@@ -431,27 +431,56 @@ if (urlPin) pinEl.value = urlPin;
  * 而隔天換課程時，多半會拿到新的 PIN 分享連結（那條會覆蓋這裡的值）。
  * 注意：只填空的欄位 —— 網址帶 ?pin=1234 進來時以網址為準。
  */
-try {
-  const last = JSON.parse(sessionStorage.getItem('pcs.student') || 'null');
+function fillPin(pin) {
+  const v = normalisePin(pin).replace(/\D/g, '').slice(0, 4);
+  if (!pinEl.value && v) pinEl.value = v;
+}
+
+function restoreLastStudent() {
+  let last = null;
+  try { last = JSON.parse(sessionStorage.getItem('pcs.student') || 'null'); } catch { return false; }
   const fresh = last?.joinedAt && Date.now() - last.joinedAt < 12 * 60 * 60 * 1000;
-  if (last?.pin && fresh) {
-    if (!pinEl.value) pinEl.value = normalisePin(last.pin).replace(/\D/g, '').slice(0, 4);
-    if (!classNoEl.value) classNoEl.value = String(last.classNo ?? '');
-    if (!nameEl.value) nameEl.value = String(last.studentName ?? '');
-    // 三欄都齊了 → 直接讓 Start 可以按（少一次點擊）
-    if (pinEl.value.length === 4 && classNoEl.value && nameEl.value) btn.focus({ preventScroll: true });
+  if (!last?.pin || !fresh) return false;
+  fillPin(last.pin);
+  if (!classNoEl.value) classNoEl.value = String(last.classNo ?? '');
+  if (!nameEl.value) nameEl.value = String(last.studentName ?? '');
+  return pinEl.value.length === 4 && !!classNoEl.value && !!nameEl.value;
+}
+
+// ★ 第二道保險：sessionStorage 有時候會跟著分頁一起消失
+//   （iOS 分頁被系統回收後重開、或從書籤／桌面捷徑重新開啟）。
+//   這裡只記 PIN —— 全班共用同一組，不會把上一位同學的姓名帶給下一位。
+try {
+  if (!pinEl.value) {
+    const m = JSON.parse(localStorage.getItem('pcs.lastPin') || 'null');
+    if (m?.pin && Date.now() - (m.at || 0) < 12 * 60 * 60 * 1000) fillPin(m.pin);
   }
-} catch { /* 私密模式 / 壞資料：當作沒有上一次 */ }
+} catch { /* 私密模式：略過 */ }
+
+if (restoreLastStudent()) {
+  // 三欄都齊了 → 直接讓 Start 可以按（少一次點擊）
+  btn.focus({ preventScroll: true });
+}
 
 /**
- * ★ 從上一頁（bfcache）返回時強制重載一次。
+ * ★ 從上一頁（bfcache）返回時：**換一份全新的文件**，不是 reload。
  *
- * 為什麼：Safari 會把整頁凍結再還原，但頁面裡的 Firebase 連線與 SDK 狀態
- * 不會跟著復活 —— 學生按 Start 之後就卡在「Finding your class…」永遠不動
- * （getDoc 的 promise 不會 resolve）。重載換一個乾淨的頁面，
- * 欄位再由上面那段自動填回，對學生來說只是一個瞬間的閃動。
+ * 為什麼：Safari 會把整頁凍結再還原，但頁面裡的 Firebase 連線、SDK 狀態、
+ * 已綁定的事件都不會跟著復活 —— 學生按 Start 之後就卡在
+ * 「Finding your class…」永遠不動，重試也一樣，只能關掉分頁重開。
+ * 之前用 location.reload()，在 iOS 上常常「看起來有跑、其實還是那份凍結的頁」，
+ * 所以改成 location.replace() 帶一個新的 _r 參數 → 一定是新的請求、新的文件，
+ * 而且不會在歷史記錄裡多留一筆（按返回不會無限迴圈）。
  */
-window.addEventListener('pageshow', (e) => { if (e.persisted) location.reload(); });
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted) return;
+  restoreLastStudent();          // 先填（萬一下面的換頁被擋住，至少能直接按 Start）
+  btn.disabled = false;
+  btn.textContent = t('join.start');
+  const u = new URL(location.href);
+  u.searchParams.set('_r', String(Date.now()));
+  location.replace(u.pathname + u.search + u.hash);
+});
 
 const JOIN_ERRORS = {
   badpin:   'join.errBadPin',
@@ -512,11 +541,41 @@ form.addEventListener('submit', async (e) => {
   ]);
 
   let r;
+  let timedOut = false;
   try {
-    r = await withTimeout(joinAssignment({ pin, classNo, studentName }), 12000);
+    r = await withTimeout(joinAssignment({ pin, classNo, studentName }), 10000);
   } catch (err) {
+    timedOut = true;
     console.warn('[PCS] join 超時／失敗', err?.message);
     r = { ok: false, error: 'network' };
+  }
+
+  /**
+   * ★★ 2026-11-25（r76）：卡住就自動「關掉分頁再開」。
+   *
+   * 為什麼要多這一段：Firestore 的 promise 卡住時（分頁從快取還原、iPad
+   * 待機醒來、多分頁搶鎖）**在同一個文件裡再試一百次也還是卡住** ——
+   * 老師實測唯一有效的解法就是「把頁面關掉重新打開」。既然如此，就叫程式
+   * 自己做：把表單值交出去，換一份全新的文件、換一個乾淨的連線自動再進一次。
+   * 學生看到的只是一次很短的白屏，不用自己發現「要關掉再開」。
+   *
+   * 只自動重試一次（60 秒內不再重試），避免網路真的掛掉時無限重整。
+   */
+  if (timedOut) {
+    let lastTry = 0;
+    try { lastTry = Number(sessionStorage.getItem('pcs.join.retry') || 0); } catch { /* 略 */ }
+    if (Date.now() - lastTry > 60000) {
+      try {
+        sessionStorage.setItem('pcs.join.retry', String(Date.now()));
+        sessionStorage.setItem('pcs.join.form', JSON.stringify({ pin, classNo, studentName, at: Date.now() }));
+      } catch { /* 私密模式：直接走下面的錯誤提示 */ }
+      const u = new URL(location.href);
+      u.searchParams.set('pin', pin);
+      u.searchParams.set('retry', '1');
+      u.searchParams.set('_r', String(Date.now()));
+      location.replace(u.pathname + u.search + u.hash);
+      return;
+    }
   }
 
   if (!r.ok) {
@@ -543,9 +602,43 @@ form.addEventListener('submit', async (e) => {
     joinedAt: Date.now(),
   }));
   sessionStorage.setItem('pcs.items', JSON.stringify(r.items));
+  // ★ r76：把 PIN 記在 localStorage（只記 PIN，不記姓名）——
+  //   下一次同一台裝置開這個首頁時，即使 sessionStorage 已被清掉，
+  //   學生也只要打學號和姓名就好。
+  try { localStorage.setItem('pcs.lastPin', JSON.stringify({ pin, at: Date.now() })); } catch { /* 略 */ }
 
   location.href = 'play.html';
 });
+
+/**
+ * ★ r76：上一次按 Start 卡住時，程式把表單交到這裡來（見上面的超時處理）。
+ *   網址帶著 retry=1 → 填好三欄、直接再送一次。
+ *   送出後把 retry 參數清掉，之後重新整理不會又自動送。
+ */
+(function autoRetryJoin() {
+  let auto = false;
+  try { auto = new URLSearchParams(location.search).get('retry') === '1'; } catch { /* 略 */ }
+  if (!auto) return;
+
+  let saved = null;
+  try {
+    saved = JSON.parse(sessionStorage.getItem('pcs.join.form') || 'null');
+    sessionStorage.removeItem('pcs.join.form');
+  } catch { /* 略 */ }
+
+  // 參數先清掉（無論資料在不在）
+  try {
+    const u = new URL(location.href);
+    u.searchParams.delete('retry');
+    history.replaceState(null, '', u.pathname + u.search + u.hash);
+  } catch { /* 略 */ }
+
+  if (!saved || Date.now() - (saved.at || 0) > 120000) return;
+  pinEl.value = normalisePin(saved.pin).replace(/\D/g, '').slice(0, 4);
+  classNoEl.value = String(saved.classNo || '');
+  nameEl.value = String(saved.studentName || '');
+  setTimeout(() => form.requestSubmit(), 150);
+})();
 </script>
 
 </body>

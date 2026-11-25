@@ -120,14 +120,23 @@ export async function initFirebase({ signIn = true } = {}) {
       }
     }
 
-    const { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } =
+    const { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache } =
       await load('firebase-firestore.js');
 
     try {
-      // 本地快取 → 詞庫離線可讀
-      db = initializeFirestore(app, {
-        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-      });
+      // ★ 2026-11-25（r76）：學生端改成「只在記憶體」的快取。
+      //
+      //   原本學生端也用 persistentLocalCache（IndexedDB + Web Locks 多分頁鎖）。
+      //   問題是那個鎖在「分頁被凍結／從 bfcache 還原／iPad 待機喚醒」之後
+      //   常常不會放掉 → Firestore 的讀寫**永遠不回來**，也不報錯：
+      //     · 學生按 Start 停在 "Finding your class…"（getDoc 不 resolve）
+      //     · 排行榜停在 "Waiting for other pupils…"（onSnapshot 沒有第一個快照）
+      //   而且重試也沒用，只能「關掉分頁重開」—— 這就是老師遇到的症狀。
+      //   學生端不需要離線快取（詞庫在 sessionStorage、待上傳作答有自己的 outbox），
+      //   所以改用記憶體快取，直接不碰那把鎖。老師端維持持久化（後台要跨分頁一致）。
+      db = initializeFirestore(app, signIn
+        ? { localCache: memoryLocalCache() }
+        : { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
     } catch {
       db = getFirestore(app);       // 已被初始化過就退回
     }
@@ -178,7 +187,7 @@ async function ensureAnonymous(au) {
 
 export async function initFirestore() {
   const mod = await load('firebase-firestore.js');
-  const { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } = mod;
+  const { getFirestore, initializeFirestore, memoryLocalCache } = mod;
 
   if (!db) {
     // ★ 一律用學生 app（outbox 只在學生端呼叫）
@@ -189,9 +198,9 @@ export async function initFirestore() {
     await ensureAnonymous(auth);
 
     try {
-      db = initializeFirestore(app, {
-        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-      });
+      // ★ 2026-11-25（r76）：記憶體快取 —— 理由同 initFirebase 的說明
+      //   （持久化多分頁鎖在 bfcache / 待機喚醒後會卡死整個 Firestore）。
+      db = initializeFirestore(app, { localCache: memoryLocalCache() });
     } catch {
       db = getFirestore(app);      // 已被初始化過就退回
     }
