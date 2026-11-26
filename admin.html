@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-26-r82';
+  var BUILD = '2026-11-27-r83';
   // ★ 公開給 module 與 console 用（版本排查時第一個要看的東西）
   window.__PCS_BUILD = BUILD;
 
@@ -50,7 +50,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-26-r82">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-27-r83">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -1555,22 +1555,22 @@ setTimeout(function () {
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-26-r82';
-import { initFirebase } from './assets/js/firebase.js?v=2026-11-26-r82';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-26-r82';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-26-r82';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-26-r82';
-import { analyseItem } from './assets/js/phrase.js?v=2026-11-26-r82';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-26-r82';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-27-r83';
+import { initFirebase } from './assets/js/firebase.js?v=2026-11-27-r83';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-27-r83';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-27-r83';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-27-r83';
+import { analyseItem } from './assets/js/phrase.js?v=2026-11-27-r83';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-27-r83';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-11-26-r82';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-26-r82';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-26-r82';
+} from './assets/js/assignments.js?v=2026-11-27-r83';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-27-r83';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-27-r83';
 import {
   shareUrl, sharePinFrom, buildCopyPayload, payloadBytes, MAX_COPY_BYTES, classifyImport, uniqueTitle,
-} from './assets/js/share.js?v=2026-11-26-r82';
+} from './assets/js/share.js?v=2026-11-27-r83';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
@@ -2328,7 +2328,18 @@ function buildAsgBreakdown(list, totalWordsInAsg = 0, sessions = null) {
   const byStudent = new Map();
   let probes = 0, correct = 0;
 
+  // ★★ r83：去重 —— 同一筆作答（同一學生・同一詞・同一關・同一時刻）只算一次。
+  //   學生端在「id 撞車」被 rules 拒絕時，會自動換一個新 document id 重傳，
+  //   同一份答案因此可能有兩個 doc（資料寧可重複，也不要遺失）。
+  //   若不去重，這種「救回來」的紀錄會讓字數、正確率、錯字次數全部重複計算。
+  const seenAnsw = new Set();
+
   for (const e of list) {
+    const dk = [e.sessionId, e.wordId, e.level, e.exposureIndex, e.clientTs].join('|');
+    if (e.clientTs) {
+      if (seenAnsw.has(dk)) continue;
+      seenAnsw.add(dk);
+    }
     // ★★ 用「作業裡的那個項目」當身分，不是用被挖的詞。
     //
     //   progressive 短語一次只挖一個 pattern，不同關卡可能挖不同詞；
@@ -5461,7 +5472,7 @@ window.__pcsOnReady = async () => {
 
     <!-- ★ 2026-11-24：投影時全班直接掃這個碼進站，不必手打網址 -->
     <div class="pinbig-qr">
-      <img src="assets/img/qr-site.png?v=2026-11-26-r82"
+      <img src="assets/img/qr-site.png?v=2026-11-27-r83"
            alt="QR code that opens the student join page">
       <span>Scan to open the join page</span>
     </div>

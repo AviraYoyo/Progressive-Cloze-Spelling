@@ -136,6 +136,83 @@ function isPermanent(e) {
   return isDenied(e) || code === 'invalid-argument' || code === 'failed-precondition';
 }
 
+// ─────────────────────────────────────────────────────────────
+// ★★ r83：讓「一筆資料不可能因為格式被拒」+「重複提交自己換 id」
+//
+//   2026-11-26 事故：學生端一直顯示「Upload failed (8)」，但資料其實早就
+//   在 Firestore 裡了。原因有兩個，都在這一節處理：
+//
+//   ① **id 撞車**：sessionId 只到「日期」（pin_3012_23_20261126），
+//      同一天重玩／按 Try again，同一個詞會算出同一個 document id。
+//      exposures 是 create-only（update 只准改 serverTs），
+//      於是 setDoc 變成「改寫既有文件」→ permission-denied，
+//      資料永遠卡在 outbox，徽章永遠是紅的。
+//      但那份文件**內容其實已經存好了**，所以不是資料遺失。
+//   ② **規則與資料格式不同步**：舊版 rules 對 level / mode / phase /
+//      probes 長度有硬性檢查，前端多一個欄位或型別不對就整筆拒絕。
+//
+//   對策：寫入前先把資料「夾」成規則一定接受的形狀；被拒時先用新 id
+//   再試一次（能過 = 純粹是 id 撞車）；若 probes 超長（舊規則上限 12）
+//   就截短再試（資料會標 probesTruncated，老師看得到）。
+//   三招都失敗才算真的失敗 —— 而失敗會帶著實際 code 與 doc id 顯示，
+//   不再只丟一句沒人看得懂的 "Upload failed"。
+// ─────────────────────────────────────────────────────────────
+const MODES = new Set(['progressive', 'dictation', 'advanced', 'flashcard']);
+const PHASES = new Set(['pretest', 'intervention', 'posttest', 'delayed', 'practice']);
+
+function intIn(v, lo, hi, dflt) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : dflt;
+}
+
+/** 把一筆紀錄整理成「rules 一定收」的形狀（不改語意，只夾範圍／補型別） */
+export function sanitizeExposure(rec, authUid) {
+  const r = { ...rec };
+  r.authUid = authUid;
+  r.schemaVersion = intIn(r.schemaVersion, 1, 99, 2);
+  r.level = intIn(r.level, 1, 12, 1);          // rules: 1..12，缺漏時給 1
+  r.exposureIndex = intIn(r.exposureIndex, 0, 99999, 0);
+  r.durationMs = Math.max(0, Math.min(Number(r.durationMs) || 0, 599999));
+  r.clientTs = Number(r.clientTs) || Date.now();
+  r.mode = MODES.has(r.mode) ? r.mode : 'progressive';
+  r.phase = PHASES.has(r.phase) ? r.phase : 'intervention';
+  for (const k of ['exposureId', 'sessionId', 'studentName', 'classNo',
+                   'dateKey', 'wordId', 'word', 'sentence']) {
+    r[k] = r[k] == null ? '' : String(r[k]);
+  }
+  let probes = Array.isArray(r.probes) ? r.probes.filter(p => p && typeof p === 'object') : [];
+  // rules 要求 probes 是 size >= 1 的 list
+  if (!probes.length) probes = [{ i: 0, expect: '', got: '', correct: false, ms: 0, attemptNo: 1 }];
+  r.probes = probes.slice(0, 40);
+
+  // ★ 任何 undefined 都會讓 Firestore 直接 invalid-argument（整筆寫不進去）。
+  //   前端某條路徑少填一個欄位（got 沒作答、ms 沒量到…）就足以讓這筆永遠上不去，
+  //   而訊息只是 "Cannot use undefined as a Firestore value"，很難查。
+  //   這裡遞迴清掉 undefined / function，語意不變、寫入一定成立。
+  return clean(r);
+}
+
+/** 遞迴移除 undefined / function（Firestore 不接受） */
+function clean(v, depth = 0) {
+  if (v === null || typeof v !== 'object') {
+    return typeof v === 'function' || v === undefined ? null : v;
+  }
+  if (depth > 6) return null;
+  if (Array.isArray(v)) return v.map(x => clean(x, depth + 1));
+  const out = {};
+  for (const [k, val] of Object.entries(v)) {
+    if (val === undefined || typeof val === 'function') continue;
+    out[k] = clean(val, depth + 1);
+  }
+  return out;
+}
+
+/** 換一個沒被用過的 document id（保留原 id 供日後對帳） */
+function freshId(id) {
+  const suffix = Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+  return `${String(id || 'exp').slice(0, 120)}_r${suffix}`;
+}
+
 /** 佇列裡最舊那筆等了多久（毫秒）—— 用來分辨「網路慢」和「卡住了」 */
 async function oldestAgeMs() {
   try {
@@ -178,29 +255,69 @@ export async function flush() {
       return { ok: 0, failed: items.length };
     }
 
-    let ok = 0, failed = 0;
+    let ok = 0, failed = 0, rescued = 0, trimmed = 0;
+    let deniedSeen = 0;
     const failedItems = [];
     let permanent = null;
     let timeoutHit = false;
 
+    // 8 秒逾時：不能讓 Firestore 卡住 UI
+    const writeOne = (id, rec) => Promise.race([
+      setDoc(doc(col, id), { ...rec, authUid, serverTs: Date.now() }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+    ]);
+
     for (const it of items) {
+      const base = sanitizeExposure(it.rec, authUid);
       try {
-        // 8 秒逾時：不能讓 Firestore 卡住 UI
-        await Promise.race([
-          setDoc(doc(col, it.rec.exposureId), { ...it.rec, authUid, serverTs: Date.now() }),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
-        ]);
+        await writeOne(base.exposureId, base);
         await del(it.key);
         ok++;
+        continue;
       } catch (e) {
-        failed++;
-        failedItems.push(it);
-        // ★ 權限被拒 / 格式被拒就別再往下打（25 台裝置會把 quota 燒完），
-        //   但也**不能丟掉資料** —— 留在 outbox，規則修好後會自己傳上去。
-        if (isPermanent(e)) { permanent = e; break; }
-        // ★ r82：第一個就逾時 → 代表現在根本連不上，後面每一筆再等 8 秒
-        //   只是白等（3 筆 = 24 秒）；直接收工，下一次 flush 再一起試。
-        if (String(e?.message) === 'timeout') { timeoutHit = true; break; }
+        if (!isDenied(e)) {
+          failed++;
+          failedItems.push(it);
+          if (String(e?.message) === 'timeout') { timeoutHit = true; break; }
+          // ★ 格式類錯誤（invalid-argument / failed-precondition）重試一萬次也不會過
+          //   → 記下來給老師看，但不要卡住後面其它筆。
+          if (isPermanent(e)) { permanent = e; if (++deniedSeen >= 3) break; }
+          continue;
+        }
+        // ★ r83：被拒 → 先假設「id 撞車」（同一題重玩，文件已存在）。
+        //   換一個新 id 再寫；若新 id 也被拒，代表是資料格式／規則的問題。
+        try {
+          const alt = freshId(base.exposureId);
+          await writeOne(alt, { ...base, exposureId: alt, dupOf: base.exposureId });
+          console.info('[PCS] 重複提交已改以新 id 上傳', alt);
+          await del(it.key);
+          ok++; rescued++;
+          continue;
+        } catch (e2) {
+          if (isDenied(e2) && base.probes.length > 12) {
+            // ★ 舊版 rules 對 probes 上限是 12（整詞模式長短語會超過）。
+            //   截短後仍保留「這個詞／這次作答」，並標記 probesTruncated，
+            //   老師在後台看得到，不會誤以為資料完整。
+            try {
+              const alt2 = freshId(base.exposureId);
+              await writeOne(alt2, {
+                ...base, exposureId: alt2, dupOf: base.exposureId,
+                probes: base.probes.slice(0, 12), probesTruncated: true,
+              });
+              console.info('[PCS] probes 超過舊規則上限，已截短上傳', alt2);
+              await del(it.key);
+              ok++; rescued++; trimmed++;
+              continue;
+            } catch (e3) {
+              failed++; failedItems.push(it); permanent = e3;
+              if (++deniedSeen >= 3) break;   // 連 3 筆被拒 → 規則問題，别再打
+              continue;
+            }
+          }
+          failed++; failedItems.push(it); permanent = e2;
+          if (++deniedSeen >= 3) break;
+          continue;
+        }
       }
     }
     failedItems.forEach(reschedule);
@@ -208,8 +325,12 @@ export async function flush() {
     // 逾時 = 現在連不上 → 4 秒後自己再試一次（不必等 20 秒的定時器）
     if (timeoutHit) scheduleFlush(4000);
 
+    if (rescued) {
+      console.info(`[PCS] 已救回 ${rescued} 筆重複提交${trimmed ? `（其中 ${trimmed} 筆 probes 截短）` : ''}`);
+    }
+
     const left = await pendingCount();
-    if (!left) { updateBadge(0, 'ok'); return { ok, failed }; }
+    if (!left) { updateBadge(0, 'ok'); return { ok, failed, rescued, trimmed }; }
 
     if (permanent) {
       // ★★ r82：這裡是「伺服器真的拒絕」，不是「網絡慢」。
@@ -224,9 +345,12 @@ export async function flush() {
         at: Date.now(),
       };
       console.error('[PCS] 伺服器拒絕寫入（資料仍留在本機 outbox）', lastError);
+      // ★ r83：把原因留在 localStorage，重新載入後還查得到
+      //   （學生機不方便開 Console，老師可以用 pcsSyncStatus() 或看這裡）。
+      try { localStorage.setItem('pcs.lastSyncError', JSON.stringify(lastError)); } catch { /* ignore */ }
       updateBadge(left, 'error');
-      setTimeout(() => { flush(); }, 60_000);   // 規則修好後自動恢復
-      return { ok, failed };
+      setTimeout(() => { flush(); }, 30_000);   // 規則修好後自動恢復
+      return { ok, failed, rescued, trimmed };
     }
 
     // ★★ r82：不再把「等了兩分鐘」當成「上傳失敗」。
