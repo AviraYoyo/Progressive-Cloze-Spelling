@@ -75,6 +75,13 @@ service cloud.firestore {
     //   改成「型別正確且 >= 1」：新舊版本都收，日後升到 3 也不會再重演。
     //   要更嚴格的話，只能在改 schema 的同一次提交裡一起改規則並立刻 deploy。
     function validExposure(d) {
+      // ★★ 2026-11-26（r82）：probes 上限 12 → 40。
+      //   整詞拼寫（dictation）一個詞的**每一個字母**都是一個 probe，
+      //   所以 "police station" = 13、"shopping centre" = 14、"science museum" = 13。
+      //   舊上限 12 會把這些詞整筆拒絕：學生端只看到「Upload failed」，
+      //   老師後台則少掉那幾個詞（而且完全無聲）。
+      //   progressive 模式一關最多 3 個空，40 對它沒有任何影響 ——
+      //   這個上限只是防止單份文件被塞爆，不是教學設計的一部分。
       return d.keys().hasAll([
         'exposureId', 'authUid', 'sessionId', 'studentName', 'classNo',
         'phase', 'dateKey', 'wordId', 'word', 'sentence',
@@ -84,7 +91,7 @@ service cloud.firestore {
       && d.level is int && d.level >= 1 && d.level <= 12
       && d.exposureIndex is int && d.exposureIndex >= 0
       && d.durationMs is number && d.durationMs >= 0 && d.durationMs < 600000
-      && d.probes is list && d.probes.size() >= 1 && d.probes.size() <= 12
+      && d.probes is list && d.probes.size() >= 1 && d.probes.size() <= 40
       && d.clientTs is number
       && d.mode in ['progressive', 'dictation', 'advanced', 'flashcard']
       && d.phase in ['pretest', 'intervention', 'posttest', 'delayed', 'practice'];

@@ -21,6 +21,31 @@ function localDateKey(d = new Date()) {
 }
 
 /**
+ * 這個（session・班號・詞・exposureIndex）已經提交過幾次。
+ *
+ * ★ 為什麼要存在 localStorage 而不是只放在記憶體：
+ *   學生「答完 → 重新載入 → 再玩一次」時是新的 JS 執行環境，
+ *   記憶體計數會歸零，於是又拿回同一個 id → 又被 rules 拒絕。
+ *   存 localStorage 才能跨重新載入遞增。
+ * ★ 也保留一份記憶體計數：無痕模式 / 儲存空間滿了時 localStorage 會拋錯，
+ *   至少同一頁內不會重複。
+ */
+const attemptMemo = new Map();
+function nextAttemptNo(baseId) {
+  const key = `pcs.exp.n.${baseId}`;
+  let n = attemptMemo.get(baseId) ?? 0;
+  try {
+    const stored = Number(localStorage.getItem(key) || 0) || 0;
+    n = Math.max(n, stored) + 1;
+    localStorage.setItem(key, String(n));
+  } catch {
+    n += 1;                       // localStorage 不可用 → 只用記憶體
+  }
+  attemptMemo.set(baseId, n);
+  return n;
+}
+
+/**
  * 建立一筆 exposure 記錄。
  *
  * @param {object} o
@@ -77,12 +102,27 @@ export function recordExposure(o) {
 
   // ★ 冪等鍵：同一 session 同一詞同一 exposureIndex 只會產生一份 document。
   //   離線重試時覆寫同一份，永不產生重複紀錄。
-  const exposureId = [
+  //
+  // ★★ r82：但「同一題被作答第二次」不是重試，是**另一筆資料**。
+  //
+  //   Try again、整局 Play again 都會讓同一組（session, 班號, 詞, exposureIndex）
+  //   再提交一次。舊版 id 不含「第幾次」，所以第二次是 setDoc **覆寫**同一份 doc，
+  //   而 rules 的 exposures 只允許 create（update 僅限改 serverTs）
+  //   → permission-denied，資料卡在 outbox，學生看到「Upload failed (N)」，
+  //   老師後台也就少了那幾筆（而且完全無聲）。
+  //
+  //   現在 id 加上遞增序號：第一次仍是原本的 id（舊資料、舊查詢都不受影響），
+  //   之後每次多一筆 *_a2、*_a3。同一個 record 被 outbox 重送時 id 不變，
+  //   幂等性完全保留。
+  const baseId = [
     student.sessionId || 'nosession',
     student.classNo || 'noclass',
     wordId,
     String(exposureIndex ?? 0),
   ].join('_');
+
+  const attemptNo = nextAttemptNo(baseId);
+  const exposureId = attemptNo === 1 ? baseId : `${baseId}_a${attemptNo}`;
 
   // 逐字母錯誤統計（後台的「最常錯字母位置」直接用這個）
   const errByIndex = {};
@@ -153,6 +193,9 @@ export function recordExposure(o) {
     blanks,
     blankCount: blanks.length,
     exposureIndex: exposureIndex ?? 0,
+    // ★ r82：這是同一個（詞・關卡）的第幾次提交（1 = 第一次，2 = 按了 Try again…）。
+    //   分析時可以用它算「一個詞要練幾次才對」，或只取第一次做前後測比較。
+    attemptNo,
     isRetry: !!isRetry,
     skipped,
 

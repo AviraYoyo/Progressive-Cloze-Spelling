@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r81';
+  var BUILD = '2026-11-26-r82';
   // ★ 公開給 module 與 console 用（版本排查時第一個要看的東西）
   window.__PCS_BUILD = BUILD;
 
@@ -50,7 +50,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r81">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-26-r82">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -953,6 +953,22 @@ margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
 .diff-mini.hard { background: #FFF3E8; color: #C2410C; border: 1px solid #FED7AA; }
 .diff-mini.both { background: #EEF2FF; color: #3730A3; border: 1px solid #C7D2FE; }
 
+/* ★ r82：標出「這份作業是整詞拼寫」。放在課程標題旁邊，
+   一眼就能分辨哪些班是 dictation、哪些是 progressive ——
+   兩種模式的「正確率」不能放在一起比較。 */
+.mode-mini {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1.5px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  vertical-align: 2px;
+  white-space: nowrap;
+  background: #EEF2FF; color: #3730A3; border: 1px solid #C7D2FE;
+}
+
 /* Create assignment 按鈕：與 .btn-s 同一設計語言 ══ */
 .asg-submit {
   display: inline-flex; align-items: center; justify-content: center;
@@ -1539,22 +1555,22 @@ setTimeout(function () {
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r81';
-import { initFirebase } from './assets/js/firebase.js?v=2026-11-25-r81';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-25-r81';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-25-r81';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-25-r81';
-import { analyseItem } from './assets/js/phrase.js?v=2026-11-25-r81';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-25-r81';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-26-r82';
+import { initFirebase } from './assets/js/firebase.js?v=2026-11-26-r82';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-26-r82';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-26-r82';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-26-r82';
+import { analyseItem } from './assets/js/phrase.js?v=2026-11-26-r82';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-26-r82';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-11-25-r81';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-25-r81';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-25-r81';
+} from './assets/js/assignments.js?v=2026-11-26-r82';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-26-r82';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-26-r82';
 import {
   shareUrl, sharePinFrom, buildCopyPayload, payloadBytes, MAX_COPY_BYTES, classifyImport, uniqueTitle,
-} from './assets/js/share.js?v=2026-11-25-r81';
+} from './assets/js/share.js?v=2026-11-26-r82';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
@@ -2337,9 +2353,17 @@ function buildAsgBreakdown(list, totalWordsInAsg = 0, sessions = null) {
         touchedWords: new Set(), skippedCount: 0, sessionIds: new Set(),
         // ★ r68：這個學生玩過哪幾種難度（Easy 做完又去 Difficult → 兩個都在）
         diffs: new Set(),
+        // ★ r82：作答模式（progressive / dictation）。
+        //   dictation = 整詞拼寫，沒有 Easy / Difficult、也沒有「挖空樣式」。
+        modes: new Set(),
+        // ★ r82：這個學生哪些詞是「整詞拼寫」答的（逐詞判斷，因為同一班
+        //   可能有人玩 progressive 的舊資料）
+        wholeWords: new Set(),
       });
     }
     const st = byStudent.get(sk);
+    if (e.mode) st.modes.add(String(e.mode));
+    if (e.mode === 'dictation' || e.mode === 'advanced') st.wholeWords.add(w);
     // ★ r68：Easy / Difficult 分開記 —— 兩者題量差三倍，
     //   混在一起看正確率會誤判「選簡單的學生比較厲害」。
     if (e.difficulty) st.diffs.add(e.difficulty === 'easy' ? 'easy' : 'difficult');
@@ -2423,12 +2447,17 @@ function buildAsgBreakdown(list, totalWordsInAsg = 0, sessions = null) {
       missingWords: missing,
       skippedCount: s.skippedCount,
       difficulties: [...(s.diffs ?? [])],
+      // ★ r82：整詞拼寫（dictation）→ 沒有 Easy / Difficult 可標。
+      //   只要這個學生所有作答都是整詞模式，就不顯示難度小球。
+      dictationOnly: s.modes.size > 0
+        && [...s.modes].every(m => m === 'dictation' || m === 'advanced'),
       // ★★ r81：不截斷 —— 原本 `.slice(0, 3)` 只留錯最多的前三個詞，
       //   於是「對了 45% 的學生」和「只錯 3 個詞的學生」在表上看起來一樣，
       //   老師會以為孩子只錯了這幾個。這裡給出**全部**錯過的詞（錯最多的排前面），
       //   課程最多 11 個詞，整列還是放得下。
+      // ★ r82：whole = 這個詞是整詞拼寫答的 → 顯示完整單詞，不要畫挖空。
       hardWords: [...s.words.entries()]
-        .map(([w, n]) => ({ word: w, n }))
+        .map(([w, n]) => ({ word: w, n, whole: s.wholeWords.has(w) }))
         .sort((a, b) => b.n - a.n || String(a.word).localeCompare(String(b.word))),
     };
   })
@@ -2467,8 +2496,14 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
  * 規則：字母相連，連續的空用 "_ _" 表示（和老師口語的 gla_ _es 一致）；
  *   詞組（"octopus card"）保留詞之間的間隔。
  */
-function blankDisplay(word) {
+function blankDisplay(word, wholeWord = false) {
   const raw = String(word ?? '');
+  // ★ r82：整詞拼寫（dictation）→ 直接顯示完整單詞。
+  //   這個模式每個字母都要學生自己打，題目上根本沒有「挖空樣式」這回事；
+  //   舊版一律用 analyseItem() 的 progressive L1 圖案去還原，
+  //   於是整詞作業也會被畫成 "a musi_ r_ _m"，看起來像老師只挖了三個字母。
+  if (wholeWord) return esc(raw);
+
   let lv = '';
   try {
     lv = analyseItem(raw)?.levels?.[0]?.display || '';
@@ -2520,6 +2555,11 @@ function renderPerAssignment(exposures, sessions) {
     const b = buildAsgBreakdown(g.exposures, (window.__pcsAsgWordCount || {})[g.key] ?? 0, sessions);
     const key = esc(g.key);
 
+    // ★ r82：這份作業是不是「整詞拼寫」（dictation）。
+    //   看資料而不是看作業設定 —— 舊作業沒有 advanced 欄位也判斷得出來；
+    //   而且同一份作業的作答模式本來就一致。
+    const wholeWord = g.exposures.some(e => e.mode === 'dictation' || e.mode === 'advanced');
+
     const wordRows = b.words.map(w => `
       <tr>
         <td><strong>${esc(w.word)}</strong></td>
@@ -2560,6 +2600,9 @@ function renderPerAssignment(exposures, sessions) {
       <tr>
         <td>${esc(s.classNo)}</td>
         <td><strong>${esc(s.name)}</strong>${(() => {
+          // ★ r82：整詞拼寫沒有 Easy / Difficult —— 每個詞都是全字輸入，
+          //   顯示難度小球會讓老師以為這班同時有兩種題型。
+          if (s.dictationOnly) return '';
           const d = s.difficulties ?? [];
           if (!d.length) return '';
           // 兩種都玩過 → 一個「E + D」標籤，不要擠兩個小球
@@ -2572,7 +2615,12 @@ function renderPerAssignment(exposures, sessions) {
         <td>${pct(s.accuracy)}</td>
         <td>${fmtFinished(s)}</td>
         <td class="td-struggle">${s.hardWords.length
-          ? s.hardWords.map(w => `<span class="cloze-word" title="${esc(w.word)} — ${w.n} mistake${w.n === 1 ? '' : 's'}">${blankDisplay(w.word)}<span class="cw-n">×${w.n}</span></span>`).join(' ')
+          ? s.hardWords.map(w => {
+              const tip = w.whole
+                ? `${w.word} — ${w.n} letter${w.n === 1 ? '' : 's'} wrong`
+                : `${w.word} — ${w.n} mistake${w.n === 1 ? '' : 's'}`;
+              return `<span class="cloze-word" title="${esc(tip)}">${blankDisplay(w.word, w.whole)}<span class="cw-n">×${w.n}</span></span>`;
+            }).join(' ')
             + (s.hardWords.length > 3 ? `<span class="cw-total">all ${s.hardWords.length} words</span>` : '')
           : '—'}</td>
       </tr>`).join('');
@@ -2587,7 +2635,9 @@ function renderPerAssignment(exposures, sessions) {
           <span class="per-asg-caret" aria-hidden="true">▸</span>
           <span class="per-asg-pin">${esc(g.pin)}</span>
           <div>
-            <div class="per-asg-title">${esc(g.title)}</div>
+            <div class="per-asg-title">${esc(g.title)}${wholeWord
+              ? `<span class="mode-mini" title="Spell the whole word: every letter is typed, there is no Easy / Difficult choice">Spell whole word</span>`
+              : ''}</div>
             <div class="per-asg-sub">${b.studentCount} students · ${b.wordCount} words · ${b.probes} letters${b.unfinishedCount ? ` · ${b.unfinishedCount} unfinished` : ''} — click to open</div>
           </div>
           <div class="per-asg-kpis">
@@ -2595,11 +2645,16 @@ function renderPerAssignment(exposures, sessions) {
           </div>
         </div>
         <div class="per-asg-body">
-          <p class="per-asg-note">Words are sorted hardest first. “Worst positions” is
-            which letter slot students got wrong most often in that word.
-            Struggled words are shown <b>as the pupils saw them</b> — a <code>_</code>
-            is a letter they had to type, so you can see exactly which slot went wrong,
-            and <b>every word they got wrong is listed</b> (most mistakes first).</p>
+          <p class="per-asg-note">${wholeWord
+            ? `Words are sorted hardest first. This is a <b>spell-the-whole-word</b> assignment:
+               every letter had to be typed, so struggled words are shown <b>in full</b> and
+               <b>×N</b> is how many letters the pupil got wrong in that word.
+               <b>Every word they got wrong is listed</b> (most mistakes first).`
+            : `Words are sorted hardest first. “Worst positions” is
+               which letter slot students got wrong most often in that word.
+               Struggled words are shown <b>as the pupils saw them</b> — a <code>_</code>
+               is a letter they had to type, so you can see exactly which slot went wrong,
+               and <b>every word they got wrong is listed</b> (most mistakes first).`}</p>
 
           <div class="sub-h">Words — hardest first</div>
           <div class="tbl-wrap"><table>
@@ -5406,7 +5461,7 @@ window.__pcsOnReady = async () => {
 
     <!-- ★ 2026-11-24：投影時全班直接掃這個碼進站，不必手打網址 -->
     <div class="pinbig-qr">
-      <img src="assets/img/qr-site.png?v=2026-11-25-r81"
+      <img src="assets/img/qr-site.png?v=2026-11-26-r82"
            alt="QR code that opens the student join page">
       <span>Scan to open the join page</span>
     </div>

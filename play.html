@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r81';
+  var BUILD = '2026-11-26-r82';
   var KEY = 'pcs.build';
   try {
     var seen = localStorage.getItem(KEY);
@@ -32,8 +32,8 @@
 <title>Progressive Cloze Spelling</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r81">
-<link rel="stylesheet" href="assets/css/student.css?v=2026-11-25-r81">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-26-r82">
+<link rel="stylesheet" href="assets/css/student.css?v=2026-11-26-r82">
 </head>
 <body class="play-page">
 
@@ -139,25 +139,25 @@ window.addEventListener('unhandledrejection', function (e) {
 </script>
 
 <script type="module">
-import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r81';
-import { diagnose } from './assets/js/blanking.js?v=2026-11-25-r81';
-import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-25-r81';
-import { emojiForWord } from './assets/js/emoji.js?v=2026-11-25-r81';
+import { PCS_CONFIG } from './assets/js/config.js?v=2026-11-26-r82';
+import { diagnose } from './assets/js/blanking.js?v=2026-11-26-r82';
+import { localWordBank, loadWordList, analyseItem, buildItemInline, composeLevel, levelCountFor } from './assets/js/wordbank.js?v=2026-11-26-r82';
+import { emojiForWord } from './assets/js/emoji.js?v=2026-11-26-r82';
 import {
   initState, nextItem, recordAnswer, markMastered, queueNextLevel, isFinished,
   progress, summarise, serialise, deserialise,
   masteryFor, setTargetMastery, makeRng,
-} from './assets/js/scheduler.js?v=2026-11-25-r81';
-import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-25-r81';
-import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-25-r81';
-import { recordExposure } from './assets/js/exposure.js?v=2026-11-25-r81';
-import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-25-r81';
-import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-25-r81';
-import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-25-r81';
+} from './assets/js/scheduler.js?v=2026-11-26-r82';
+import { speakSentenceAndWord, speakWord, stopSpeaking, primeSpeech, speechStarted } from './assets/js/speech.js?v=2026-11-26-r82';
+import { playCorrect, playWrong, playComplete, playTap, unlockAudio } from './assets/js/sfx.js?v=2026-11-26-r82';
+import { recordExposure } from './assets/js/exposure.js?v=2026-11-26-r82';
+import { enqueue, setBadgeTranslator, refreshBadge } from './assets/js/outbox.js?v=2026-11-26-r82';
+import { confettiBurst, confettiCelebrate } from './assets/js/confetti.js?v=2026-11-26-r82';
+import { initLang, t, applyI18n, mountLangToggle } from './assets/js/i18n.js?v=2026-11-26-r82';
 import {
   scoreRound, loadMyScore, addScore, resetMyScore, fetchClassRanking, myRank, buildRankSession,
   subscribeClassRanking, todayKey,
-} from './assets/js/leaderboard.js?v=2026-11-25-r81';
+} from './assets/js/leaderboard.js?v=2026-11-26-r82';
 
 const CFG = PCS_CONFIG.experiment;
 initLang();
@@ -464,6 +464,15 @@ async function init() {
     }
     console.warn('[PCS] 存檔與目前作業不一致，直接開新的一局');
   }
+
+  // ★ r82：整詞拼寫（Advanced / dictation）不要問難度。
+  //
+  //   這個模式本身就是「最難」的形態：整個詞（或整個短語）所有字母都要自己填，
+  //   而且每個詞只出現一次、沒有 L1→L2 的階梯可選。
+  //   再讓學生按 Easy / Difficult 只是多一道沒有意義的關卡
+  //   （按 Easy 也還是要拼完整的字），所以直接開局。
+  //   difficulty 固定記為 'difficult'：排行榜的分組與後台分析才有一致口徑。
+  if (ADVANCED) { startNewRun('difficult'); return; }
 
   // ★ 全新的一局 → 先讓學生選難度，選完才建立遊戲狀態。
   //   以前這裡直接 initState + render，等於預設困難；現在難度是學生的選擇。
@@ -1889,7 +1898,7 @@ async function renderResult() {
       <div class="result-emoji">🎉</div>
       <h2>${escapeHtml(t('done.title'))}</h2>
       <p class="sub">${escapeHtml(t('done.sub', { n: s.wordsMastered }))}
-        <span class="diff-chip ${isEasy() ? 'easy' : 'hard'}">${escapeHtml(t(isEasy() ? 'diff.easyTag' : 'diff.hardTag'))}</span>
+        ${ADVANCED ? '' : `<span class="diff-chip ${isEasy() ? 'easy' : 'hard'}">${escapeHtml(t(isEasy() ? 'diff.easyTag' : 'diff.hardTag'))}</span>`}
       </p>
 
       <div class="result-points">⭐ ${my.points}</div>
@@ -2307,12 +2316,17 @@ function drawRanking(ranking) {
     });
   }
 
-  const groups = [
-    { key: 'easy', title: t('rank.easyGroup'), rows: [] },
-    { key: 'difficult', title: t('rank.hardGroup'), rows: [] },
-  ];
+  // ★ r82：整詞拼寫只有一種玩法 → 不要再硬分 Easy / Difficult。
+  //   （難度在這個模式下固定是 difficult，分兩組只會有一組永遠空著。）
+  const groups = ADVANCED
+    ? [{ key: 'whole', title: t('rank.wholeGroup'), rows: [] }]
+    : [
+        { key: 'easy', title: t('rank.easyGroup'), rows: [] },
+        { key: 'difficult', title: t('rank.hardGroup'), rows: [] },
+      ];
   for (const r of ranking) {
-    (normDiff(r.difficulty) === 'easy' ? groups[0] : groups[1]).rows.push(r);
+    if (ADVANCED) groups[0].rows.push(r);
+    else (normDiff(r.difficulty) === 'easy' ? groups[0] : groups[1]).rows.push(r);
   }
   for (const g of groups) {
     g.rows.sort((a, b) => b.points - a.points || b.accuracy - a.accuracy);
@@ -2346,7 +2360,8 @@ function drawRanking(ranking) {
     // ★ 「我的名次」只在**目前這一局所屬**的那一欄顯示。
     //   同時玩過兩欄的學生（Easy 做完又去 Difficult）兩欄都有自己，
     //   兩邊各印一次「Rank #2 / 2」會讓人以為重複計算。
-    const isCurrent = g.key === myDiff;
+    // ★ r82：整詞拼寫只有一組 → 這一組就是「我現在的這一局」。
+    const isCurrent = ADVANCED || g.key === myDiff;
     return `<div class="rank-group ${g.key}${isCurrent ? ' current' : ''}">
       <div class="rank-group-head"><span class="rg-dot"></span>${escapeHtml(g.title)}</div>
       ${list}

@@ -181,6 +181,7 @@ export async function flush() {
     let ok = 0, failed = 0;
     const failedItems = [];
     let permanent = null;
+    let timeoutHit = false;
 
     for (const it of items) {
       try {
@@ -197,27 +198,46 @@ export async function flush() {
         // ★ 權限被拒 / 格式被拒就別再往下打（25 台裝置會把 quota 燒完），
         //   但也**不能丟掉資料** —— 留在 outbox，規則修好後會自己傳上去。
         if (isPermanent(e)) { permanent = e; break; }
+        // ★ r82：第一個就逾時 → 代表現在根本連不上，後面每一筆再等 8 秒
+        //   只是白等（3 筆 = 24 秒）；直接收工，下一次 flush 再一起試。
+        if (String(e?.message) === 'timeout') { timeoutHit = true; break; }
       }
     }
-
     failedItems.forEach(reschedule);
     backoff = 2000;                       // 有成功就重設退避
+    // 逾時 = 現在連不上 → 4 秒後自己再試一次（不必等 20 秒的定時器）
+    if (timeoutHit) scheduleFlush(4000);
 
     const left = await pendingCount();
     if (!left) { updateBadge(0, 'ok'); return { ok, failed }; }
 
     if (permanent) {
-      console.error('[PCS] 伺服器拒絕寫入（資料仍留在本機）',
-        permanent.code || '', permanent.message || '');
+      // ★★ r82：這裡是「伺服器真的拒絕」，不是「網絡慢」。
+      //   最常見的原因：Security Rules 與現在的資料格式不一致
+      //   （例：schemaVersion / mode / probes 數量）。
+      //   把 code 與第一筆的 document id 印出來，才有辦法查。
+      lastError = {
+        code: String(permanent.code || 'permission-denied'),
+        message: String(permanent.message || ''),
+        sampleId: failedItems[0]?.key || '',
+        sampleWord: failedItems[0]?.rec?.word || '',
+        at: Date.now(),
+      };
+      console.error('[PCS] 伺服器拒絕寫入（資料仍留在本機 outbox）', lastError);
       updateBadge(left, 'error');
       setTimeout(() => { flush(); }, 60_000);   // 規則修好後自動恢復
       return { ok, failed };
     }
 
-    // ★ 網路沒問題卻等了兩分鐘以上 → 不是「正在存」，是真的卡住了，
-    //   寧可說「上傳失敗」也不要讓老師以為一直在存。
+    // ★★ r82：不再把「等了兩分鐘」當成「上傳失敗」。
+    //   實測：學生機 Wi-Fi 弱的時候，一筆 write 可以 10 秒才拿到 ack，
+    //   資料其實一直安全躺在 outbox（也常常在下一輪就全部傳完）。
+    //   把它標成紅色 "Upload failed" 只會嚇到老師，而且事後看 Results
+    //   資料明明是完整的 —— 於是「失敗」變成一個沒人相信的訊號。
+    //   現在：只有「伺服器拒絕」才是紅色；網路慢是琥珀色的 "Still saving"。
     const stuck = navigator.onLine !== false && (await oldestAgeMs()) > 120_000;
-    updateBadge(left, stuck ? 'error' : 'pending');
+    updateBadge(left, stuck ? 'slow' : 'pending');
+    if (stuck) backoff = Math.min(backoff * 2, 30_000);
     return { ok, failed };
   } catch (e) {
     console.warn('[PCS] flush 失敗', e);
@@ -262,14 +282,18 @@ function scheduleFlush(delay = 800) {
  */
 let translate = null;
 let lastBadge = { n: 0, state: 'ok' };
+/** 最後一次「伺服器拒絕」的細節（給 tooltip / console 診斷用） */
+let lastError = null;
 
 const FALLBACK = {
   'sync.ok': 'Synced',
   'sync.pending': 'Saving {n}',
+  'sync.slow': 'Still saving {n}',
   'sync.error': 'Upload failed ({n})',
   'sync.okTitle': 'All answers have been uploaded to your teacher.',
   'sync.pendingTitle': '{n} answers are saved on this device and waiting to upload.\nClosing the tab will not lose them — they upload automatically when the connection returns.',
-  'sync.errorTitle': 'Answers are saved on this device but cannot reach the server. Check the connection, or ask your teacher to check the Security Rules.',
+  'sync.slowTitle': 'The answers are saved on this device, but the server has not confirmed them yet — usually a weak Wi-Fi signal.\nThey will upload automatically. Tap this badge to try again now.',
+  'sync.errorTitle': 'The server refused these answers (Security Rules), so they stay on this device.\nAsk your teacher to check the Firestore rules.',
 };
 
 function T(key, vars) {
@@ -303,7 +327,14 @@ function updateBadge(n, state = 'ok') {
     badge.classList.add('error');
     // ★ r81：帶上筆數 —— 只看「上傳失敗」會不知道有多少筆受影響
     text.textContent = T('sync.error', { n });
-    badge.title = T('sync.errorTitle');
+    // ★ r82：把伺服器實際回的原因附在 tooltip，才有辦法查（rules / 格式）
+    badge.title = T('sync.errorTitle')
+      + (lastError ? `\n\n${lastError.code}${lastError.sampleId ? ` · ${lastError.sampleId}` : ''}` : '');
+  } else if (state === 'slow') {
+    // ★ r82：網路慢 ≠ 上傳失敗。資料一直在 outbox，下一輪就會傳完。
+    badge.classList.add('pending');
+    text.textContent = T('sync.slow', { n });
+    badge.title = T('sync.slowTitle');
   } else if (n > 0) {
     badge.classList.add('pending');
     text.textContent = T('sync.pending', { n });
@@ -313,6 +344,12 @@ function updateBadge(n, state = 'ok') {
     badge.title = T('sync.okTitle');
   }
 }
+
+/** 診斷用：Console 裡打 pcsSyncStatus() 就能看到佇列狀態與被拒原因 */
+export function syncStatus() {
+  return { pending: lastBadge.n, state: lastBadge.state, lastError };
+}
+if (typeof window !== 'undefined') window.pcsSyncStatus = syncStatus;
 
 /** 用真實待傳筆數重畫（頁面啟動時呼叫一次，不必等 20 秒定時器） */
 export async function refreshBadge() {
@@ -340,6 +377,14 @@ if (typeof window !== 'undefined') {
   document.addEventListener('pcs:lang-changed', () => {
     updateBadge(lastBadge.n, lastBadge.state);
   });
+
+  // ★ r82：點徽章 = 立刻重試（不必等 20 秒的定時器）。
+  //   學生機常常「看起來沒在動」，給一個可以按的動作比解釋一堆有用。
+  const badgeEl = document.getElementById('syncBadge');
+  if (badgeEl) {
+    badgeEl.style.cursor = 'pointer';
+    badgeEl.addEventListener('click', () => { if (lastBadge.n > 0) flush(); });
+  }
 
   // 首次進入：把徽章從 HTML 的佔位文字換成真實狀態
   // ★ r81：顯示完真實筆數後**立刻補傳一次** —— 上次（例如規則壞掉那天）
@@ -375,5 +420,5 @@ export async function recoverMirror() {
 
 export const outbox = {
   enqueue, flush, flushNow, pendingCount, recoverMirror, drainMirror,
-  setBadgeTranslator, refreshBadge,
+  setBadgeTranslator, refreshBadge, syncStatus,
 };

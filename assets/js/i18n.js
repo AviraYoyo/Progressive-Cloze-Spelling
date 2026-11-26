@@ -118,10 +118,12 @@ const STRINGS = {
     // ── 同步徽章（outbox.js 透過 setBadgeTranslator 注入 t）──
     'sync.ok': 'Synced',
     'sync.pending': 'Saving {n}',
+    'sync.slow': 'Still saving {n}',
     'sync.error': 'Upload failed ({n})',
     'sync.okTitle': 'All answers have been uploaded to your teacher.',
     'sync.pendingTitle': '{n} answers are saved on this device and waiting to upload.\nClosing the tab will not lose them — they upload automatically when the connection returns.',
-    'sync.errorTitle': 'Answers are saved on this device but cannot reach the server. Check the connection, or ask your teacher to check the Security Rules.',
+    'sync.slowTitle': 'The answers are saved on this device, but the server has not confirmed them yet — usually a weak Wi-Fi signal.\nThey will upload automatically. Tap this badge to try again now.',
+    'sync.errorTitle': 'The server refused these answers (Security Rules), so they stay on this device.\nAsk your teacher to check the Firestore rules.',
 
     // ── 難度選擇 ──
     'diff.title': 'Choose your level',
@@ -154,6 +156,8 @@ const STRINGS = {
     'rank.waiting': 'Waiting for other pupils…',
     'rank.easyGroup': 'Easy',
     'rank.hardGroup': 'Difficult',
+    // ★ r82：整詞拼寫模式沒有難度之分 → 只有一組
+    'rank.wholeGroup': 'Whole word',
     'rank.groupEmpty': 'No one yet',
     // ★ 2026-10-16：無法分組時的明確提示（正常流程不會出現，別讓學生以為網路壞了）
     'rank.noGroup': 'Ranking is not set up for this class yet. Ask your teacher.',
@@ -265,10 +269,12 @@ const STRINGS = {
     // ── 同步徽章（outbox.js 透過 setBadgeTranslator 注入 t）──
     'sync.ok': '已上傳',
     'sync.pending': '儲存中 {n}',
+    'sync.slow': '仍在儲存 {n}',
     'sync.error': '上傳失敗（{n}）',
     'sync.okTitle': '所有作答都已上傳到老師的後台。',
     'sync.pendingTitle': '{n} 筆作答已安全保存在這台裝置，正在等待上傳。\n關閉分頁不會遺失，網絡恢復後會自動上傳。',
-    'sync.errorTitle': '作答資料保存在這台裝置，但無法傳到伺服器。請確認網絡，或請老師檢查 Security Rules。',
+    'sync.slowTitle': '作答已保存在這台裝置，但伺服器還沒確認收到 —— 通常是 Wi-Fi 太弱。\n資料不會遺失，連上網就會自動上傳。按一下這個標籤可以立刻重試。',
+    'sync.errorTitle': '伺服器拒絕了這幾筆作答（Security Rules），所以資料留在這台裝置。\n請老師檢查 Firestore 規則。',
 
     // ── 難度選擇 ──
     'diff.title': '選擇難度',
@@ -301,6 +307,8 @@ const STRINGS = {
     'rank.waiting': '等待其他同學…',
     'rank.easyGroup': '簡單模式',
     'rank.hardGroup': '困難模式',
+    // ★ r82：整詞拼寫模式沒有難度之分 → 只有一組
+    'rank.wholeGroup': '整詞拼寫',
     'rank.groupEmpty': '還沒有人',
     // ★ 2026-10-16：無法分組時的明確提示（正常流程不會出現，別讓學生以為網路壞了）
     'rank.noGroup': '這個班還未設定排名，請向老師確認。',
