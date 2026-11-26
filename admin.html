@@ -10,7 +10,7 @@
      版本不一致就強制重整。改程式碼後請同步更新 config.js 的 BUILD_ID。 -->
 <script>
 (function () {
-  var BUILD = '2026-11-25-r79';
+  var BUILD = '2026-11-25-r81';
   // ★ 公開給 module 與 console 用（版本排查時第一個要看的東西）
   window.__PCS_BUILD = BUILD;
 
@@ -50,7 +50,7 @@
 <title>Teacher Console · PCS</title>
 <!-- ★ 2026-10-16：補上 favicon，消除瀏覽器每次載入都打一條 404 的 console 噪音 -->
 <link rel="icon" href="favicon.ico" sizes="any">
-<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r79">
+<link rel="stylesheet" href="assets/css/tokens.css?v=2026-11-25-r81">
 <style>
 body { min-height: 100dvh; background: #F7F6F5; }
 
@@ -905,8 +905,14 @@ margin: 16px 0 7px; text-transform: uppercase; letter-spacing: .04em; }
 
 /* ★ 2026-11-20：struggle 單詞用「題目的挖空形式」顯示（gla_ _es）
    等寬字 + 保留底線 → 老師能一眼數出是第幾格錯，
-   比顯示完整單詞再自己挖空快得多。 */
-.td-struggle { min-width: 190px; }
+   比顯示完整單詞再自己挖空快得多。
+   ★ r81：不再只顯示前 3 個詞，所以要允許摺行 —— 給一個上限寬度，
+   多出來的詞往第二行排，而不是把旁邊幾欄擠扁。 */
+.td-struggle { min-width: 190px; max-width: 460px; white-space: normal; }
+.td-struggle .cw-total {
+  display: inline-block; margin-left: 2px;
+  font-size: 11px; font-weight: 700; color: var(--ink-mute, #9CA3AF);
+}
 .cloze-word {
   display: inline-block;
   margin: 1px 6px 1px 0;
@@ -1533,22 +1539,22 @@ setTimeout(function () {
 </script>
 
 <script type="module">
-import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r79';
-import { initFirebase } from './assets/js/firebase.js?v=2026-11-25-r79';
-import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-25-r79';
-import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-25-r79';
-import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-25-r79';
-import { analyseItem } from './assets/js/phrase.js?v=2026-11-25-r79';
-import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-25-r79';
+import { FIREBASE_VERSION, PCS_CONFIG } from './assets/js/config.js?v=2026-11-25-r81';
+import { initFirebase } from './assets/js/firebase.js?v=2026-11-25-r81';
+import { authState, signOut, changePassword, reauthenticate, checkPassword } from './assets/js/auth.js?v=2026-11-25-r81';
+import { PHRASE_KEYS, phraseInfo, toWordDoc } from './assets/data/phrases.js?v=2026-11-25-r81';
+import { emojiForWord, categoryForWord } from './assets/js/emoji.js?v=2026-11-25-r81';
+import { analyseItem } from './assets/js/phrase.js?v=2026-11-25-r81';
+import { loadAnalytics, renderAnalysis, exportCsv, downloadCsvRows } from './assets/js/analytics.js?v=2026-11-25-r81';
 import {
   buildAssignment, makePin, normalisePin, isValidPinFormat,
   assignmentDocId, joinUrl,
-} from './assets/js/assignments.js?v=2026-11-25-r79';
-import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-25-r79';
-import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-25-r79';
+} from './assets/js/assignments.js?v=2026-11-25-r81';
+import { generateSentences, qualityCheck, hasKey, keyStore } from './assets/js/ai-sentences.js?v=2026-11-25-r81';
+import { fileToDataUrl, imageFromClipboard, imageFromDrop } from './assets/js/images.js?v=2026-11-25-r81';
 import {
   shareUrl, sharePinFrom, buildCopyPayload, payloadBytes, MAX_COPY_BYTES, classifyImport, uniqueTitle,
-} from './assets/js/share.js?v=2026-11-25-r79';
+} from './assets/js/share.js?v=2026-11-25-r81';
 
 const V = FIREBASE_VERSION;
 const msg = document.getElementById('msg');
@@ -2417,8 +2423,13 @@ function buildAsgBreakdown(list, totalWordsInAsg = 0, sessions = null) {
       missingWords: missing,
       skippedCount: s.skippedCount,
       difficulties: [...(s.diffs ?? [])],
+      // ★★ r81：不截斷 —— 原本 `.slice(0, 3)` 只留錯最多的前三個詞，
+      //   於是「對了 45% 的學生」和「只錯 3 個詞的學生」在表上看起來一樣，
+      //   老師會以為孩子只錯了這幾個。這裡給出**全部**錯過的詞（錯最多的排前面），
+      //   課程最多 11 個詞，整列還是放得下。
       hardWords: [...s.words.entries()]
-        .map(([w, n]) => ({ word: w, n })).sort((a, b) => b.n - a.n).slice(0, 3),
+        .map(([w, n]) => ({ word: w, n }))
+        .sort((a, b) => b.n - a.n || String(a.word).localeCompare(String(b.word))),
     };
   })
     // ★ 分數最高的排前面（原本是「錯最多的排前面」）。
@@ -2561,7 +2572,9 @@ function renderPerAssignment(exposures, sessions) {
         <td>${pct(s.accuracy)}</td>
         <td>${fmtFinished(s)}</td>
         <td class="td-struggle">${s.hardWords.length
-          ? s.hardWords.map(w => `<span class="cloze-word" title="${esc(w.word)} — ${w.n} mistake${w.n === 1 ? '' : 's'}">${blankDisplay(w.word)}<span class="cw-n">×${w.n}</span></span>`).join(' ') : '—'}</td>
+          ? s.hardWords.map(w => `<span class="cloze-word" title="${esc(w.word)} — ${w.n} mistake${w.n === 1 ? '' : 's'}">${blankDisplay(w.word)}<span class="cw-n">×${w.n}</span></span>`).join(' ')
+            + (s.hardWords.length > 3 ? `<span class="cw-total">all ${s.hardWords.length} words</span>` : '')
+          : '—'}</td>
       </tr>`).join('');
 
     // ★ 預設全部收合：老師自行點開要看哪一班。
@@ -2585,7 +2598,8 @@ function renderPerAssignment(exposures, sessions) {
           <p class="per-asg-note">Words are sorted hardest first. “Worst positions” is
             which letter slot students got wrong most often in that word.
             Struggled words are shown <b>as the pupils saw them</b> — a <code>_</code>
-            is a letter they had to type, so you can see exactly which slot went wrong.</p>
+            is a letter they had to type, so you can see exactly which slot went wrong,
+            and <b>every word they got wrong is listed</b> (most mistakes first).</p>
 
           <div class="sub-h">Words — hardest first</div>
           <div class="tbl-wrap"><table>
@@ -5392,7 +5406,7 @@ window.__pcsOnReady = async () => {
 
     <!-- ★ 2026-11-24：投影時全班直接掃這個碼進站，不必手打網址 -->
     <div class="pinbig-qr">
-      <img src="assets/img/qr-site.png?v=2026-11-25-r79"
+      <img src="assets/img/qr-site.png?v=2026-11-25-r81"
            alt="QR code that opens the student join page">
       <span>Scan to open the join page</span>
     </div>

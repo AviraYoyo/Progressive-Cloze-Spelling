@@ -64,13 +64,23 @@ service cloud.firestore {
     //   Firestore rules 只允許在 service cloud.firestore 內宣告函式，
     //   放在區塊外（檔案最後）會讓整份rules 在 Publish 時被拒絕。
     // ═══════════════════════════════════════════
+    // ★★★ 2026-11-25 事故修正（原：`d.schemaVersion == 1`）
+    //
+    //   11-24（r68）exposure.js 把 schemaVersion 升到 2（一關可挖 2–3 個
+    //   不同語音結構，多了 targets / targetKey / phonClass），但規則沒跟上。
+    //   結果：**每一筆新作答都被 permission-denied 拒絕**，而學生端為了
+    //   不阻塞遊戲，寫入失敗是完全靜默的（只留在 iPad 的 outbox 裡）。
+    //   老師看到的就是「新開的 PIN 在 Results 裡一個學生都沒有」。
+    //
+    //   改成「型別正確且 >= 1」：新舊版本都收，日後升到 3 也不會再重演。
+    //   要更嚴格的話，只能在改 schema 的同一次提交裡一起改規則並立刻 deploy。
     function validExposure(d) {
       return d.keys().hasAll([
         'exposureId', 'authUid', 'sessionId', 'studentName', 'classNo',
         'phase', 'dateKey', 'wordId', 'word', 'sentence',
         'level', 'exposureIndex', 'durationMs', 'probes', 'clientTs'
       ])
-      && d.schemaVersion == 1
+      && d.schemaVersion is int && d.schemaVersion >= 1
       && d.level is int && d.level >= 1 && d.level <= 12
       && d.exposureIndex is int && d.exposureIndex >= 0
       && d.durationMs is number && d.durationMs >= 0 && d.durationMs < 600000

@@ -115,6 +115,38 @@ let flushTimer = null;
 let backoff = 2000;
 
 /**
+ * ★★ r81：認出「伺服器拒絕」的錯誤。
+ *
+ *   舊碼只比對 `e.message` 裡的 permission-denied，但 Firestore v9 的寫法錯誤是
+ *   `e.code === 'permission-denied'`、message 只有 "Missing or insufficient
+ *   permissions." —— 所以「被安全規則拒絕」從來沒被認出來，只會被當成一般失敗：
+ *   每一輪 flush 都重試、徽章永遠停在「儲存中 N」。
+ *   老師看到的就正是這個：明明沒在存，卻一直顯示 Saving 34。
+ */
+function isDenied(e) {
+  const code = String(e?.code || '');
+  const msg = String(e?.message || '');
+  return code === 'permission-denied'
+    || /permission[-_ ]denied|insufficient permissions/i.test(msg);
+}
+
+/** 重試也不會成功的錯誤（資料格式 / 規則 / 前置條件）→ 立刻停止猛打伺服器 */
+function isPermanent(e) {
+  const code = String(e?.code || '');
+  return isDenied(e) || code === 'invalid-argument' || code === 'failed-precondition';
+}
+
+/** 佇列裡最舊那筆等了多久（毫秒）—— 用來分辨「網路慢」和「卡住了」 */
+async function oldestAgeMs() {
+  try {
+    const items = (await all()) || [];
+    if (!items.length) return 0;
+    const oldest = items.reduce((m, it) => Math.min(m, it.queuedAt || Date.now()), Infinity);
+    return Date.now() - oldest;
+  } catch { return 0; }
+}
+
+/**
  * 把 outbox 裡的資料寫到 Firestore。
  * ★ 冪等：用 set() 而非 add()，重試覆寫同一份 document。
  */
@@ -147,7 +179,8 @@ export async function flush() {
     }
 
     let ok = 0, failed = 0;
-    const failedKeys = [];
+    const failedItems = [];
+    let permanent = null;
 
     for (const it of items) {
       try {
@@ -160,23 +193,31 @@ export async function flush() {
         ok++;
       } catch (e) {
         failed++;
-        failedKeys.push(it.key);
-
-        // ★ 權限被拒就停止重試 —— 否則 25 台裝置會無限重試燒完 quota
-        if (/permission-denied|PERMISSION_DENIED/i.test(e.message || '')) {
-          console.error('[PCS] 權限被拒，停止重試 60 秒。請檢查 Firestore Rules。');
-          failedKeys.forEach(k => reschedule(k));
-          updateBadge(await pendingCount(), 'error');
-          setTimeout(flush, 60_000);
-          return { ok, failed };
-        }
+        failedItems.push(it);
+        // ★ 權限被拒 / 格式被拒就別再往下打（25 台裝置會把 quota 燒完），
+        //   但也**不能丟掉資料** —— 留在 outbox，規則修好後會自己傳上去。
+        if (isPermanent(e)) { permanent = e; break; }
       }
     }
 
-    failedKeys.forEach(k => reschedule(k));
+    failedItems.forEach(reschedule);
     backoff = 2000;                       // 有成功就重設退避
+
     const left = await pendingCount();
-    updateBadge(left, left ? 'pending' : 'ok');
+    if (!left) { updateBadge(0, 'ok'); return { ok, failed }; }
+
+    if (permanent) {
+      console.error('[PCS] 伺服器拒絕寫入（資料仍留在本機）',
+        permanent.code || '', permanent.message || '');
+      updateBadge(left, 'error');
+      setTimeout(() => { flush(); }, 60_000);   // 規則修好後自動恢復
+      return { ok, failed };
+    }
+
+    // ★ 網路沒問題卻等了兩分鐘以上 → 不是「正在存」，是真的卡住了，
+    //   寧可說「上傳失敗」也不要讓老師以為一直在存。
+    const stuck = navigator.onLine !== false && (await oldestAgeMs()) > 120_000;
+    updateBadge(left, stuck ? 'error' : 'pending');
     return { ok, failed };
   } catch (e) {
     console.warn('[PCS] flush 失敗', e);
@@ -188,11 +229,14 @@ export async function flush() {
   }
 }
 
-async function reschedule(key) {
+/**
+ * 把失敗的那筆「原封不動」放回去，只把 tries +1。
+ * ★ 舊碼是重新 put 一次 → queuedAt 被蓋成現在、tries 歸零，
+ *   結果「等了多久」永遠是 0，也分不出重試了幾次。
+ */
+async function reschedule(it) {
   try {
-    const items = (await all()) || [];
-    const it = items.find(x => x.key === key);
-    if (it) await put({ ...it.rec, key, queuedAt: it.queuedAt, tries: (it.tries ?? 0) + 1 });
+    await tx('readwrite', s => s.put({ ...it, tries: (it.tries ?? 0) + 1 }));
   } catch { /* 忽略 */ }
 }
 
@@ -222,7 +266,7 @@ let lastBadge = { n: 0, state: 'ok' };
 const FALLBACK = {
   'sync.ok': 'Synced',
   'sync.pending': 'Saving {n}',
-  'sync.error': 'Upload failed',
+  'sync.error': 'Upload failed ({n})',
   'sync.okTitle': 'All answers have been uploaded to your teacher.',
   'sync.pendingTitle': '{n} answers are saved on this device and waiting to upload.\nClosing the tab will not lose them — they upload automatically when the connection returns.',
   'sync.errorTitle': 'Answers are saved on this device but cannot reach the server. Check the connection, or ask your teacher to check the Security Rules.',
@@ -257,7 +301,8 @@ function updateBadge(n, state = 'ok') {
   badge.classList.remove('pending', 'error');
   if (state === 'error') {
     badge.classList.add('error');
-    text.textContent = T('sync.error');
+    // ★ r81：帶上筆數 —— 只看「上傳失敗」會不知道有多少筆受影響
+    text.textContent = T('sync.error', { n });
     badge.title = T('sync.errorTitle');
   } else if (n > 0) {
     badge.classList.add('pending');
@@ -297,10 +342,16 @@ if (typeof window !== 'undefined') {
   });
 
   // 首次進入：把徽章從 HTML 的佔位文字換成真實狀態
+  // ★ r81：顯示完真實筆數後**立刻補傳一次** —— 上次（例如規則壞掉那天）
+  //   卡住的資料不該等到有新作答、或 20 秒的定時器才開始傳。
+  const boot = async () => {
+    await refreshBadge();
+    scheduleFlush(1200);
+  };
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { refreshBadge(); }, { once: true });
+    document.addEventListener('DOMContentLoaded', boot, { once: true });
   } else {
-    refreshBadge();
+    boot();
   }
 
   // 課堂中每 20 秒背景同步
